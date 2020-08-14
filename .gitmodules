@@ -1,0 +1,3 @@
+[submodule "robot_vision/robot_vision_openvino"]
+	path = robot_vision/robot_vision_openvino
+	url = git@github.com:HilbertXu/ros_openvino.git

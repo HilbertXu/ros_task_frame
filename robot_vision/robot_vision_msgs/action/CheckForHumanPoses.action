@@ -1,0 +1,13 @@
+# Check if human in image
+
+# Goal definition
+int16 id
+sensor_msgs/Image image
+
+---
+# Result definition
+int16 id
+robot_vision_msgs/HumanPoses human_poses
+
+---
+# Feedback definition
