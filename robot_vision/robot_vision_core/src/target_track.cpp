@@ -125,16 +125,52 @@ public:
   TargetShift() {};
   ~TargetShift();
 
+  void pubJointTrajectory(ros::Publisher &pub, const std::string &name, const double state, const int duration_sec) {
+    std::vector<std::string> names;
+    names.push_back(name);
+
+    std::vector<double> states;
+    states.push_back(state);
+
+    ros::Duration duration;
+    duration.sec = duration_sec;
+
+    trajectory_msgs::JointTrajectory jointTrajectory_;
+    trajectory_msgs::JointTrajectoryPoint armJointPoint_;
+
+    armJointPoint_.positions = states;
+    armJointPoint_.time_from_start = duration;
+
+    jointTrajectory_.points.push_back(armJointPoint_);
+    jointTrajectory_.joint_names = names;
+
+    pub.publish(jointTrajectory_);
+    
+  }
+
   //! 用来控制头部电机大致朝向物体的函数
-  void controlHead(int X_, int Y_, float controlScale_);
+  void controlHead(int X_, int Y_, float controlScale_) {
+    {
+      // head lift control
+      float error = centerY_ - Y_;
+      FLAG_request_curr_state = true;
+      float pan = currPanJointState_ + error*controlScale_;
+    }
+    {
+      // head pan control
+    }
+
+  }
 
   //! 用来在物体静止后控制电机精确朝向物体的函数
   int pidController(int X_, int Y_) {
+    // @TODO 
+    // 目前使用简单的对准策略，考虑使用上面实现的增量pid进行控制
     float error = calcPixelDistance(centerX_, centerY_, X_, Y_);
-    if (error < 5) {
+    if (error < 10) {
       return 0;
     }
-    if (error > 5) {
+    if (error > 10) {
       controlHead(X_, Y_, 0.001);
       return pidController(currX_, currY_);
     }
@@ -195,7 +231,7 @@ public:
           // 当前识别帧与图像中心相差小于50
           // 计算两帧识别框之间的距离
           float preDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
-          if (preDistance < 5) {
+          if (preDistance < 10) {
             // 如果两帧识别框距离小于5，则保持不动
             frameCount_ += 1;
           } else {

@@ -1,0 +1,30 @@
+{
+    "configurations": [
+        {
+            "browse": {
+                "databaseFilename": "",
+                "limitSymbolsToIncludedHeaders": true
+            },
+            "includePath": [
+                "/home/kamerider/mustar_robot/devel/include",
+                "/home/kamerider/kamerider_GPSR/devel/include",
+                "/home/kamerider/catkin_ws/devel/include",
+                "/home/kamerider/softwares/turtle_packages/turtlebot/devel/include",
+                "/home/kamerider/softwares/turtle_packages/kobuki/devel/include",
+                "/home/kamerider/softwares/turtle_packages/rocon/devel/include",
+                "/opt/ros/kinetic/include",
+                "/home/kamerider/mustar_robot/src/robot_control/robot_control_core/include",
+                "/home/kamerider/mustar_robot/src/robot_navigation/robot_navigation_core/include",
+                "/home/kamerider/mustar_robot/src/robot_vision/robot_vision_core/include",
+                "/home/kamerider/mustar_robot/src/robot_vision/robot_vision_openvino/include",
+                "/usr/include"
+            ],
+            "name": "Linux",
+            "intelliSenseMode": "gcc-x64",
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "gnu11",
+            "cppStandard": "c++17"
+        }
+    ],
+    "version": 4
+}
