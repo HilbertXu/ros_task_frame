@@ -48,7 +48,7 @@
 #include <robot_vision_msgs/BoundingBoxes.h>
 #include <robot_vision_msgs/HumanPoses.h>
 
-typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState, robot_vision_msgs::BoundingBoxes> syncPolicy;
+typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState> syncPolicy;
 
 float calcPixelDistance(int targetX_, int targetY_, int X_, int Y_) {
   float distance = sqrt(pow((targetX_ - X_), 2) + pow((targetY_ - Y_),2));
@@ -100,6 +100,9 @@ public:
 
 class TargetShift {
 private:
+  // ROS Handle
+  ros::NodeHandle nodeHandle_;
+
   // Image parameters
   int centerX_;
   int centerY_;
@@ -122,38 +125,50 @@ private:
   ros::Publisher headLiftJointPublisher_;
 
   ros::Subscriber cameraInfoSubscriber_;
+  ros::Subscriber bboxSubscriber_;
   ros::Subscriber controlSubscriber_;
 public:
   // 构造函数和析构函数
-  TargetShift(int argc, char** argv){
-    if (argc == 3 && std::string(argv[1])=="-target") {
-      targetName_ = std::string(argv[2]);
-      ROS_INFO("[TargetShift] Receivied Track target: %s from console", targetName_.c_str());
-      FLAG_start_track = true;
-      init(argc, argv);
-    } else {
-      init(argc, argv);
-    }
+  TargetShift(ros::NodeHandle nh):nodeHandle_(nh) {}
+  
+  TargetShift(ros::NodeHandle nh, std::string target):nodeHandle_(nh), targetName_(target) {
+    ROS_INFO("[TargetShift] Receivied Track target: %s from console", targetName_.c_str());
+    FLAG_start_track = true;
+    init();
   }
 
   ~TargetShift() {}
 
-  void dynamixelControl(int curr_x, int curr_y, float pan_state, float lift_state, float scale) {
-    int error_x = centerX_ - curr_x;
-    int error_y = centerY_ - curr_y;
-    printf("X error: %d, Y error: %d", error_x, error_y);
-
-    float next_state_pan =  pan_state + error_x*scale;
-    float next_state_lift = lift_state - error_y*scale;
-    std_msgs::Float64 msg_pan;
-    std_msgs::Float64 msg_lift;
-
-    msg_pan.data = next_state_pan;
-    msg_lift.data = next_state_lift;
-
-    headPanJointPublisher_.publish(msg_pan);
-    headLiftJointPublisher_.publish(msg_lift);
+  void pubPanJointCommand(ros::Publisher &publisher, int error, float scale) {
+    std_msgs::Float64 msg;
+    
   }
+
+  //! 用来控制头部电机大致朝向物体的函数
+  // void controlHead(int X_, int Y_, float controlScale_) {
+  //   {
+  //     // head lift control
+  //     float error = centerY_ - Y_;
+  //     float pan = currPanJointState_ + error*controlScale_;
+  //   }
+  //   {
+  //     // head pan control
+  //   }
+
+  // }
+
+  //! 用来在物体静止后控制电机精确朝向物体的函数
+  // int pidController(int X_, int Y_) {
+  //   // @TODO 
+  //   // 目前使用简单的对准策略，考虑使用上面实现的增量pid进行控制
+  //   float error = calcPixelDistance(centerX_, centerY_, X_, Y_);
+  //   if (error < 10) {
+  //     return 0;
+  //   }
+  //   if (error > 10) {
+  //     return pidController(currX_, currY_);
+  //   }
+  // }
 
   void controlCallback(robot_control_msgs::Mission msg) {
     if (msg.action == "track") {
@@ -161,10 +176,12 @@ public:
         assert(msg.attributes.object.name != "");
         targetName_ = msg.attributes.object.name; 
         FLAG_start_track = true;
+        init();
       }
       if (msg.target == "human") {
         targetName_ = "person";
         FLAG_start_track = true;
+        init();
       }
     }
     ROS_INFO("[TargetShift] Receivied Track target: %s from control node", targetName_.c_str());
@@ -180,33 +197,31 @@ public:
     }
   }
 
-  void currStateCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::BoundingBoxesConstPtr &msg) {
-    std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+  // Bounding boxes callback
+  void bboxCallback(robot_vision_msgs::BoundingBoxes msg) {
     // searching for target object
-    for (int i = 0; i < msg->bounding_boxes.size(); i++) {
-      if (msg->bounding_boxes[i].Class == targetName_) {
+    for (int i = 0; i < msg.bounding_boxes.size(); i++) {
+      if (msg.bounding_boxes[i].Class == targetName_) {
         // 保留上一帧中的识别框中心点
         preCurrX_ = currX_;
         preCurrY_ = currX_;
         // 记录当前识别框的中心点
-        currX_ = int((msg->bounding_boxes[i].xmax + msg->bounding_boxes[i].xmin) / 2);
-        currY_ = int((msg->bounding_boxes[i].ymax + msg->bounding_boxes[i].ymin) / 2);
-        printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+        currX_ = int((msg.bounding_boxes[i].xmax + msg.bounding_boxes[i].xmin) / 2);
+        currY_ = int((msg.bounding_boxes[i].ymax + msg.bounding_boxes[i].ymin) / 2);
+        printf("Pre frame: (%d, %d), current frame: (%d, %d)", preCurrX_, preCurrY_, currX_, currY_);
         // 如果识别到多个目标物体怎么办。。。
         // 目前尝试方案：识别到目标物体后直接break出当前循环
         break;
       }
     }
-    // receive motor state
-    currPanJointState_ = pan_state->current_pos;
-    currLiftJointState_ = lift_state->current_pos;
-    
-    dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
   }
 
-  void init(int argc, char** argv) {
-    ros::init(argc, argv, "track_target");
-    ros::NodeHandle nodeHandle_;
+  void jointStateCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state) {
+    currPanJointState_ = pan_state->current_pos;
+    currLiftJointState_ = lift_state->current_pos;
+  }
+
+  void init() {
     ROS_INFO("[TargetShift] Initializing...");
     // Initialize ROS publishers & subscribers
     headPanJointPublisher_  = nodeHandle_.advertise<std_msgs::Float64>("/head_pan_joint/command", 1, false);
@@ -214,19 +229,28 @@ public:
 
     cameraInfoSubscriber_   = nodeHandle_.subscribe("/astra/rgb/camera_info", 1, &TargetShift::cameraInfoCallback, this);
     controlSubscriber_      = nodeHandle_.subscribe("/control_to_vision", 1, &TargetShift::controlCallback, this);
+    bboxSubscriber_         = nodeHandle_.subscribe("/yolo_ros/bounding_boxes", 1, &TargetShift::bboxCallback, this);
 
-    // 回调函数同步，确保获取同一时刻两个头部电机的关节角度和识别框的位置
-    message_filters::Subscriber<dynamixel_msgs::JointState> panJointSubscriber_(nodeHandle_, "/head_pan_joint/state", 1, ros::TransportHints().tcpNoDelay());
-    message_filters::Subscriber<dynamixel_msgs::JointState> liftJointSubscriber_(nodeHandle_, "/head_lift_joint/state", 1, ros::TransportHints().tcpNoDelay());
-    message_filters::Subscriber<robot_vision_msgs::BoundingBoxes> bboxSubscriber_(nodeHandle_, "/yolo_ros/bounding_boxes", 1, ros::TransportHints().tcpNoDelay());
+    // 回调函数同步，确保获取同一时刻两个头部电机的关节角度
+    message_filters::Subscriber<dynamixel_msgs::JointState> panJointSubscriber_(nodeHandle_, "/head_pan_joint/state", 10, ros::TransportHints().tcpNoDelay());
+    message_filters::Subscriber<dynamixel_msgs::JointState> liftJointSubscriber_(nodeHandle_, "/head_lift_joint/state", 10, ros::TransportHints().tcpNoDelay());
     
-    message_filters::Synchronizer<syncPolicy> sync(syncPolicy(10), panJointSubscriber_, liftJointSubscriber_, bboxSubscriber_);
-    sync.registerCallback(boost::bind(&TargetShift::currStateCallback, this, _1, _2, _3));
-    ros::spin();
+    message_filters::Synchronizer<syncPolicy> sync(syncPolicy(10), panJointSubscriber_, liftJointSubscriber_);
+    sync.registerCallback(boost::bind(&TargetShift::jointStateCallback, this, _1, _2));
   }
 };
 
 int main(int argc, char** argv) {
-  TargetShift tracker(argc, argv);  
-  return 0;
+  ros::init(argc, argv, "track_target");
+  ros::NodeHandle nh;
+
+  if (argc == 3 && std::string(argv[1]) == "-target") {
+    // 如果控制台中有参数track_target，则将参数值作为追踪目标
+    TargetShift tracker(nh, std::string(argv[2]));
+  } else {
+    TargetShift tracker(nh);
+  }
+
+  ros::spin();
+  
 }

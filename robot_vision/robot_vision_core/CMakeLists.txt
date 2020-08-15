@@ -12,6 +12,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 find_package(OpenCV REQUIRED)
 
 find_package(catkin REQUIRED COMPONENTS
+  message_filters
   message_generation
   robot_control_msgs
   darknet_ros_msgs
@@ -176,6 +177,8 @@ target_link_libraries(door_detect ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_
 add_executable(object_detection src/object_detection.cpp)
 target_link_libraries(object_detection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
+add_executable(target_track src/target_track.cpp)
+target_link_libraries(target_track ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 #############
 ## Install ##
