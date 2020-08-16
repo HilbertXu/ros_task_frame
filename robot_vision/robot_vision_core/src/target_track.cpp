@@ -4,6 +4,7 @@
  *  Created on: Aug 14th, 2020
  *      Author: Hilbert Xu
  *   Institute: Mustar Robot
+ *   使用前修改头部电机速度为0.1
  */
 
 // c++
@@ -176,32 +177,33 @@ public:
     if (centerX_==0 && centerY_==0){
       centerX_ = int(msg.width/2);
       centerY_ = int(msg.height/2);
-      ROS_INFO("[CameraInfo] Setting centerX_: %d, centerY_:%d...", centerX_, centerY_);
+      ROS_INFO("[CameraInfo] Setting pixel_center_x: %d, pixel_center_y:%d...", centerX_, centerY_);
     }
   }
 
   void currStateCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::BoundingBoxesConstPtr &msg) {
-    std::cout << "======================= Enter Sync callback ===========================" << std::endl;
-    // searching for target object
-    for (int i = 0; i < msg->bounding_boxes.size(); i++) {
-      if (msg->bounding_boxes[i].Class == targetName_) {
-        // 保留上一帧中的识别框中心点
-        preCurrX_ = currX_;
-        preCurrY_ = currX_;
-        // 记录当前识别框的中心点
-        currX_ = int((msg->bounding_boxes[i].xmax + msg->bounding_boxes[i].xmin) / 2);
-        currY_ = int((msg->bounding_boxes[i].ymax + msg->bounding_boxes[i].ymin) / 2);
-        printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
-        // 如果识别到多个目标物体怎么办。。。
-        // 目前尝试方案：识别到目标物体后直接break出当前循环
-        break;
+    if (FLAG_start_track) {
+      std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+      // searching for target object
+      for (int i = 0; i < msg->bounding_boxes.size(); i++) {
+        if (msg->bounding_boxes[i].Class == targetName_) {
+          // 保留上一帧中的识别框中心点
+          preCurrX_ = currX_;
+          preCurrY_ = currX_;
+          // 记录当前识别框的中心点
+          currX_ = int((msg->bounding_boxes[i].xmax + msg->bounding_boxes[i].xmin) / 2);
+          currY_ = int((msg->bounding_boxes[i].ymax + msg->bounding_boxes[i].ymin) / 2);
+          printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+          // 如果识别到多个目标物体怎么办。。。
+          // 目前尝试方案：识别到目标物体后直接break出当前循环
+          break;
+        }
       }
+      // receive motor state
+      currPanJointState_ = pan_state->current_pos;
+      currLiftJointState_ = lift_state->current_pos;
+      dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
     }
-    // receive motor state
-    currPanJointState_ = pan_state->current_pos;
-    currLiftJointState_ = lift_state->current_pos;
-    
-    dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
   }
 
   void init(int argc, char** argv) {
