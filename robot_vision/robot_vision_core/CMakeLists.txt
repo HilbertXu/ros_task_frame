@@ -180,6 +180,9 @@ target_link_libraries(object_detection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 add_executable(target_track src/target_track.cpp)
 target_link_libraries(target_track ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
+add_executable(fake_camera src/fake_camera.cpp)
+target_link_libraries(fake_camera ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+
 #############
 ## Install ##
 #############

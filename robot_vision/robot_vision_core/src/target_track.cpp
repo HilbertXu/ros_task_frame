@@ -116,6 +116,9 @@ private:
   // Flags
   bool FLAG_start_track = false;
 
+  // ROS node Handle
+  ros::NodeHandle nodeHandle_;
+
   // ROS publishers & subscribers
   std::string targetName_;
 
@@ -126,7 +129,7 @@ private:
   ros::Subscriber controlSubscriber_;
 public:
   // 构造函数和析构函数
-  TargetShift(int argc, char** argv){
+  TargetShift(ros::NodeHandle nh, int argc, char** argv):nodeHandle_(nh){
     if (argc == 3 && std::string(argv[1])=="-target") {
       targetName_ = std::string(argv[2]);
       ROS_INFO("[TargetShift] Receivied Track target: %s from console", targetName_.c_str());
@@ -202,13 +205,12 @@ public:
       // receive motor state
       currPanJointState_ = pan_state->current_pos;
       currLiftJointState_ = lift_state->current_pos;
+    
       dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
     }
   }
 
   void init(int argc, char** argv) {
-    ros::init(argc, argv, "track_target");
-    ros::NodeHandle nodeHandle_;
     ROS_INFO("[TargetShift] Initializing...");
     // Initialize ROS publishers & subscribers
     headPanJointPublisher_  = nodeHandle_.advertise<std_msgs::Float64>("/head_pan_joint/command", 1, false);
@@ -229,6 +231,9 @@ public:
 };
 
 int main(int argc, char** argv) {
-  TargetShift tracker(argc, argv);  
+  ros::init(argc, argv, "track_target");
+  ROS_INFO("[TargetShift] Initializing...");
+  ros::NodeHandle nh("~");
+  TargetShift tracker(nh, argc, argv);  
   return 0;
 }
