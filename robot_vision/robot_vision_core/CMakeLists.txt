@@ -177,8 +177,11 @@ target_link_libraries(door_detect ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_
 add_executable(object_detection src/object_detection.cpp)
 target_link_libraries(object_detection ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
-add_executable(target_track src/target_track.cpp)
-target_link_libraries(target_track ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+# add_executable(target_track src/target_track.cpp)
+# target_link_libraries(target_track ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+
+add_executable(test_target_track src/target_tracker.cpp)
+target_link_libraries(test_target_track ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 add_executable(fake_camera src/fake_camera.cpp)
 target_link_libraries(fake_camera ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
