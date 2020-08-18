@@ -95,6 +95,71 @@ void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
   }
 }
 
+void TargetShift::colorTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const opencv_apps::RotatedRectStampedConstPtr &msg) {
+  if (FLAG_start_track) {
+    std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+    // receive motor state
+    currPanJointState_ = pan_state->current_pos;
+    currLiftJointState_ = lift_state->current_pos;
+    preCurrX_ = currX_;
+    preCurrY_ = currX_;
+    // 记录当前识别框的中心点
+    currX_ = int(msg->rect.center.x);
+    currY_ = int(msg->rect.center.y);
+    printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+    float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
+    if (frame2frameDistance > 10) {
+      dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+    }
+  }
+}
+
+void TargetShift::faceTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const opencv_apps::FaceArrayStampedConstPtr &msg) {
+  if (FLAG_start_track) {
+    std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+    // receive motor state
+    currPanJointState_ = pan_state->current_pos;
+    currLiftJointState_ = lift_state->current_pos;
+    // 记录当前识别框的中心点
+    if (msg->faces.size() > 0) {
+      preCurrX_ = currX_;
+      preCurrY_ = currX_;
+      int face_id = atoi(targetName_.c_str());
+      currX_ = int(msg->faces[face_id].face.x);
+      currY_ = int(msg->faces[face_id].face.y);
+      printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+      float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
+      if (frame2frameDistance > 10) {
+        dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+      }
+    }
+  }
+}
+
+void TargetShift::faceWithNameTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const opencv_apps::FaceArrayStampedConstPtr &msg) {
+  if (FLAG_start_track) {
+    std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+    // receive motor state
+    currPanJointState_ = pan_state->current_pos;
+    currLiftJointState_ = lift_state->current_pos;
+    // 记录当前识别框的中心点
+    for (int i=0; i<msg->faces.size(); i++) {
+      if (msg->faces[i].label == std::string(targetName_)) {
+        preCurrX_ = currX_;
+        preCurrY_ = currX_;
+        currX_ = int(msg->faces[i].face.x);
+        currY_ = int(msg->faces[i].face.y);
+        printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+        float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
+        if (frame2frameDistance > 10) {
+          dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+        }
+      }
+    }
+  }
+}
+
+
 void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::HumanPosesConstPtr &msg) {
   if (FLAG_start_track) {
     std::cout << "======================= Enter Sync callback ===========================" << std::endl;
@@ -118,9 +183,6 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
         break;
       }
     }
-    
-    
-    
   }
 }
 
@@ -185,7 +247,46 @@ void TargetShift::setTrackTarget() {
 
     // Declare synchronizer and set time approximate to be 10
     openposeSync.reset(new OpenposeSync(OpenposeSyncPolicy(10), panJointSubscriber_, liftJointSubscriber_, poseSubscriber_));
-    //openposeSync->registerCallback(boost::bind(&TargetShift::openposeTrackCallback, this, std::placeholders::_1, std::placeholders::_2));
+    openposeSync->registerCallback(boost::bind(&TargetShift::openposeTrackCallback, this, _1, _2, _3));
+  }
+
+  else if (track_ == "color") {
+    ROS_INFO("[TargetTracker] Setting Synchronizer <JointState, JointState, color_box>, Callback: colorTrackCallback");
+
+    // create subscribers with message filter
+    panJointSubscriber_.subscribe(nodeHandle_, "/head_pan_joint/state", 1, ros::TransportHints().tcpNoDelay());
+    liftJointSubscriber_.subscribe(nodeHandle_, "/head_lift_joint/state", 1, ros::TransportHints().tcpNoDelay());
+    colorSubscriber_.subscribe(nodeHandle_, "/camshift/track_box", 1, ros::TransportHints().tcpNoDelay());
+
+    // Declare synchronizer and set time approximate to be 10
+    colorSync.reset(new ColorSync(ColorSyncPolicy(10), panJointSubscriber_, liftJointSubscriber_, colorSubscriber_));
+    colorSync->registerCallback(boost::bind(&TargetShift::colorTrackCallback, this, _1, _2, _3));
+  }
+
+  else if (track_ == "face") {
+    ROS_INFO("[TargetTracker] Setting Synchronizer <JointState, JointState, face_box>, Callback: faceTrackCallback");
+
+    // create subscribers with message filter
+    panJointSubscriber_.subscribe(nodeHandle_, "/head_pan_joint/state", 1, ros::TransportHints().tcpNoDelay());
+    liftJointSubscriber_.subscribe(nodeHandle_, "/head_lift_joint/state", 1, ros::TransportHints().tcpNoDelay());
+    faceSubscriber_.subscribe(nodeHandle_, "/face_detection/faces", 1, ros::TransportHints().tcpNoDelay());
+
+    // Declare synchronizer and set time approximate to be 10
+    faceSync.reset(new FaceSync(FaceSyncPolicy(10), panJointSubscriber_, liftJointSubscriber_, faceSubscriber_));
+    faceSync->registerCallback(boost::bind(&TargetShift::faceTrackCallback, this, _1, _2, _3));
+  }
+
+  else if (track_ == "person") {
+    ROS_INFO("[TargetTracker] Setting Synchronizer <JointState, JointState, face_box>, Callback: faceWithNameTrackCallback");
+
+    // create subscribers with message filter
+    panJointSubscriber_.subscribe(nodeHandle_, "/head_pan_joint/state", 1, ros::TransportHints().tcpNoDelay());
+    liftJointSubscriber_.subscribe(nodeHandle_, "/head_lift_joint/state", 1, ros::TransportHints().tcpNoDelay());
+    faceSubscriber_.subscribe(nodeHandle_, "/face_recognition/output", 1, ros::TransportHints().tcpNoDelay());
+
+    // Declare synchronizer and set time approximate to be 10
+    faceSync.reset(new FaceSync(FaceSyncPolicy(10), panJointSubscriber_, liftJointSubscriber_, faceSubscriber_));
+    faceSync->registerCallback(boost::bind(&TargetShift::faceWithNameTrackCallback, this, _1, _2, _3));
   }
 }
 

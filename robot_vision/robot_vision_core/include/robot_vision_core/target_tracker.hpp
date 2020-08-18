@@ -37,6 +37,8 @@
 #include <std_msgs/String.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
+#include <opencv_apps/FaceArrayStamped.h>
+#include <opencv_apps/RotatedRectStamped.h>
 #include <dynamixel_msgs/JointState.h>
 #include <trajectory_msgs/JointTrajectory.h>
 #include <trajectory_msgs/JointTrajectoryPoint.h>
@@ -60,7 +62,13 @@ typedef message_filters::Synchronizer<YoloSyncPolicy> YoloSync;
 typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState, robot_vision_msgs::HumanPoses> OpenposeSyncPolicy;
 typedef message_filters::Synchronizer<OpenposeSyncPolicy> OpenposeSync;
 
-namespace target_tracker{
+typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState, opencv_apps::RotatedRectStamped> ColorSyncPolicy;
+typedef message_filters::Synchronizer<ColorSyncPolicy> ColorSync;
+
+typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState, opencv_apps::FaceArrayStamped> FaceSyncPolicy;
+typedef message_filters::Synchronizer<FaceSyncPolicy> FaceSync;
+
+namespace target_tracker {
   // Distance calculate function
   float calcPixelDistance(int targetX_, int targetY_, int X_, int Y_) {
     float distance = sqrt(pow((targetX_ - X_), 2) + pow((targetY_ - Y_),2));
@@ -150,9 +158,13 @@ namespace target_tracker{
     message_filters::Subscriber<dynamixel_msgs::JointState> liftJointSubscriber_;
     message_filters::Subscriber<robot_vision_msgs::BoundingBoxes> bboxSubscriber_;
     message_filters::Subscriber<robot_vision_msgs::HumanPoses> poseSubscriber_;
+    message_filters::Subscriber<opencv_apps::RotatedRectStamped> colorSubscriber_;
+    message_filters::Subscriber<opencv_apps::FaceArrayStamped> faceSubscriber_;
 
     boost::shared_ptr<YoloSync> yoloSync;
     boost::shared_ptr<OpenposeSync> openposeSync;
+    boost::shared_ptr<ColorSync> colorSync;
+    boost::shared_ptr<FaceSync> faceSync;
 
     // Initial function
     void init();
@@ -174,5 +186,11 @@ namespace target_tracker{
 
     // Synchronized callback function 1. <JointState-10hz, JointState-10hz, human_poses-10hz>
     void openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::HumanPosesConstPtr &msg);
+
+    void colorTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const opencv_apps::RotatedRectStampedConstPtr &msg);
+
+    void faceTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const opencv_apps::FaceArrayStampedConstPtr &msg);
+
+    void faceWithNameTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const opencv_apps::FaceArrayStampedConstPtr &msg);
   };
 }
