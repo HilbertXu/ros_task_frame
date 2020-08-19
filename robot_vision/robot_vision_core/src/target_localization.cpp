@@ -80,8 +80,8 @@ private:
 	ros::Publisher pcl_pub;
 
 	// parameters
-	const std::string CAMERA_DEPTH_FRAME = "camera_top_depth_frame";
-	const std::string TURTLEBOT_BASE_FRAME = "base_link";
+	std::string CAMERA_DEPTH_FRAME = "camera_top_depth_frame";
+	std::string TARGET_FRAME;
 
 	// 定义待抓取的物体的名称，初始化为None
 	std::string object_name = "none";
@@ -118,6 +118,15 @@ private:
 				object_x = msg.attributes.vision.pixel_coords.pixel_x;
 				object_y = msg.attributes.vision.pixel_coords.pixel_y;
 				std::cout << "Received target object: " << object_name << ", pixel coordinates: " << "(" << object_x << "," << object_y << ")" << std::endl;
+				TARGET_FRAME = "/base_link";
+				FLAG_sub_pcl_data = true;
+			}
+			// 在空间中(/map)定位目标人物的地图坐标
+			else if (msg.target == "human") {
+				object_x = msg.attributes.vision.pixel_coords.pixel_x;
+				object_y = msg.attributes.vision.pixel_coords.pixel_y;
+				std::cout << "Received target object: " << object_name << ", pixel coordinates: " << "(" << object_x << "," << object_y << ")" << std::endl;
+				TARGET_FRAME = "/map";
 				FLAG_sub_pcl_data = true;
 			}
 		}
@@ -176,10 +185,12 @@ private:
 
 				try {
 					ROS_INFO("Listening for the tf transform");
-					pListener.waitForTransform("/camera_top_depth_optical_frame", "/base_link", ros::Time(0), ros::Duration(3.0));
-					pListener.transformPoint("/base_link", cam_pos, base_point);
-					ROS_INFO("cam_point: (%.2f, %.2f. %.2f) -----> base_link: (%.2f, %.2f, %.2f) at time %.2f",
+					pListener.waitForTransform(CAMERA_DEPTH_FRAME, TARGET_FRAME, ros::Time(0), ros::Duration(3.0));
+					pListener.transformPoint(TARGET_FRAME, cam_pos, base_point);
+					ROS_INFO("%s: (%.2f, %.2f. %.2f) -----> %s: (%.2f, %.2f, %.2f) at time %.2f",
+									CAMERA_DEPTH_FRAME,
 									cam_pos.point.x, cam_pos.point.y, cam_pos.point.z,
+									TARGET_FRAME,
 									base_point.point.x, base_point.point.y, base_point.point.z, base_point.header.stamp.toSec());
 				}
 				catch(tf::TransformException& ex) {
@@ -193,11 +204,13 @@ private:
 				cam_pos.point.y = cloud_astra->points[origin_index].y;
 				cam_pos.point.z = cloud_astra->points[origin_index].z;
 				try {
-					ROS_INFO("Looking for transform");
-					pListener.waitForTransform("/camera_top_depth_optical_frame", "/base_link", ros::Time(0), ros::Duration(3.0));
-					pListener.transformPoint("/base_link", cam_pos, base_point);
-					ROS_INFO("cam_point: (%.2f, %.2f. %.2f) -----> base_link: (%.2f, %.2f, %.2f) at time %.2f",
+					ROS_INFO("Listening for the tf transform");
+					pListener.waitForTransform(CAMERA_DEPTH_FRAME, TARGET_FRAME, ros::Time(0), ros::Duration(3.0));
+					pListener.transformPoint(TARGET_FRAME, cam_pos, base_point);
+					ROS_INFO("%s: (%.2f, %.2f. %.2f) -----> %s: (%.2f, %.2f, %.2f) at time %.2f",
+									CAMERA_DEPTH_FRAME,
 									cam_pos.point.x, cam_pos.point.y, cam_pos.point.z,
+									TARGET_FRAME,
 									base_point.point.x, base_point.point.y, base_point.point.z, base_point.header.stamp.toSec());
 				}
 				catch(tf::TransformException& ex) {
