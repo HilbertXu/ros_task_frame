@@ -168,7 +168,7 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
     currLiftJointState_ = lift_state->current_pos;
     // searching for target object
     for (int i = 0; i < msg->poses.size(); i++) {
-      if (std::to_string(msg->poses[i].human_id) == targetName_) {
+      if (std::string(msg->poses[i].pose) == targetName_) {
         // 保留上一帧中的识别框中心点
         preCurrX_ = currX_;
         preCurrY_ = currX_;
@@ -185,6 +185,7 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
     }
   }
 }
+
 
 void TargetShift::dynamixelControl(int curr_x, int curr_y, float pan_state, float lift_state, float scale) {
   int error_x = centerX_ - curr_x;
