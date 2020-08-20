@@ -32,16 +32,29 @@
 
 // ROS
 #include <ros/ros.h>
-#include <ros/callback_queue.h>
-#include <std_msgs/Float64.h>
 #include <std_msgs/String.h>
+#include <std_msgs/Float64.h>
 #include <sensor_msgs/Image.h>
+#include <ros/callback_queue.h>
+#include <geometry_msgs/Twist.h>
+#include <geometry_msgs/Point.h>
+#include <tf/transform_listener.h>
 #include <sensor_msgs/CameraInfo.h>
+#include <tf2/LinearMath/Vector3.h>
+#include <geometry_msgs/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <dynamixel_msgs/JointState.h>
 #include <opencv_apps/FaceArrayStamped.h>
 #include <opencv_apps/RotatedRectStamped.h>
-#include <dynamixel_msgs/JointState.h>
 #include <trajectory_msgs/JointTrajectory.h>
 #include <trajectory_msgs/JointTrajectoryPoint.h>
+
+// Eigen3
+
+#include <Eigen/Core>
+#include <Eigen/Dense>
+#include <Eigen/Geometry> 
+#include <Eigen/StdVector>
 
 //Subscribers Synchronizer 
 #include <message_filters/subscriber.h>
@@ -54,6 +67,8 @@
 #include <robot_control_msgs/Feedback.h>
 #include <robot_vision_msgs/BoundingBoxes.h>
 #include <robot_vision_msgs/HumanPoses.h>
+
+#define PI 3.1415926
 
 // Define synchronizer policy
 typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState, robot_vision_msgs::BoundingBoxes> YoloSyncPolicy;
@@ -118,7 +133,7 @@ namespace target_tracker {
       return u_increment;
     }
   };
-
+  
   class TargetShift {
   public:
     //! Constructor
@@ -149,6 +164,7 @@ namespace target_tracker {
     // ROS subscribers & publishers
     ros::Publisher headPanJointPublisher_;
     ros::Publisher headLiftJointPublisher_;
+    ros::Publisher cmdVelPublisher_;
     
     ros::Subscriber cameraInfoSubscriber_;
     ros::Subscriber controlSubscriber_;
@@ -180,6 +196,9 @@ namespace target_tracker {
 
     // Camera info callback function
     void cameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &msg);
+
+    // Arm joint state sync callback
+    void jointStateCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state);
 
     // Synchronized callback function 1. <JointState-10hz, JointState-10hz, bounding_boxes-3hz>
     void yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::BoundingBoxesConstPtr &msg);

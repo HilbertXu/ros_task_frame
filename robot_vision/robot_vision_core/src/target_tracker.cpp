@@ -87,11 +87,6 @@ void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
         break;
       }
     }
-    
-    // float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
-    // if (frame2frameDistance > 10) {
-    //   dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
-    // }
   }
 }
 
@@ -213,13 +208,21 @@ void TargetShift::init() {
   std::string controlTopicName_;
   int controlQueueSize_;
 
+  std::string cmdVelTopicName_;
+  int cmdVelQueueSize_;
+  bool cmdVelLatch_;
+
   nodeHandle_.param("subscribers/camera_info/topic", cameraInfoTopicName_, std::string("/camera/rgb/camera_info"));
   nodeHandle_.param("subscribers/camera_info/queue_size", cameraInfoQueueSize_, 1);
   nodeHandle_.param("subscribers/control_to_vision/topic", controlTopicName_, std::string("/control_to_vision"));
   nodeHandle_.param("subscribers/control_to_vision/queue_size", controlQueueSize_, 1);
+  nodeHandle_.param("publishers/cmd_vel/topic", cmdVelTopicName_, std::string("/cmd_vel_mux/input/navi"));
+  nodeHandle_.param("publishers/cmd_vel/queue_size", cmdVelQueueSize_, 1);
+  nodeHandle_.param("publishers/cmd_vel/latch", cmdVelLatch_, false);
 
   headPanJointPublisher_  = nodeHandle_.advertise<std_msgs::Float64>("/head_pan_joint/command", 1, false);
   headLiftJointPublisher_ = nodeHandle_.advertise<std_msgs::Float64>("/head_lift_joint/command", 1, false);
+  cmdVelPublisher_        = nodeHandle_.advertise<geometry_msgs::Twist>(cmdVelTopicName_, cmdVelQueueSize_, cmdVelLatch_);
   cameraInfoSubscriber_   = nodeHandle_.subscribe(cameraInfoTopicName_, 1, &TargetShift::cameraInfoCallback, this);
   controlSubscriber_      = nodeHandle_.subscribe(controlTopicName_, 1, &TargetShift::controlCallback, this);
 }

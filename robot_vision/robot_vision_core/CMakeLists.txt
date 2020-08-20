@@ -11,8 +11,12 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules")
 
 find_package(OpenCV REQUIRED)
 
+find_package(orocos_kdl REQUIRED)
+
+find_package(Eigen3 REQUIRED)
+
 find_package(catkin REQUIRED COMPONENTS
-  opencv_apps
+  #opencv_apps
   message_filters
   message_generation
   robot_control_msgs
@@ -175,17 +179,20 @@ include_directories(
 add_executable(door_detect src/door_detect.cpp)
 target_link_libraries(door_detect ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
 
-add_executable(target_localization src/target_localizatio.cpp)
-target_link_libraries(target_localizatio ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+add_executable(target_localization src/target_localization.cpp)
+target_link_libraries(target_localization ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 # add_executable(target_track src/target_track.cpp)
 # target_link_libraries(target_track ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
-add_executable(test_target_track src/target_tracker.cpp)
-target_link_libraries(test_target_track ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+#add_executable(test_target_track src/target_tracker.cpp)
+#target_link_libraries(test_target_track ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 add_executable(fake_camera src/fake_camera.cpp)
 target_link_libraries(fake_camera ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+
+add_executable(test_kdl src/test_kdl.cpp)
+target_link_libraries(test_kdl ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 #############
 ## Install ##

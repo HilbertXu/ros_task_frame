@@ -194,7 +194,7 @@ private:
 									base_point.point.x, base_point.point.y, base_point.point.z, base_point.header.stamp.toSec());
 				}
 				catch(tf::TransformException& ex) {
-					ROS_ERROR("Received an exception trying to transform a point from \"camera_top_depth_optical_frame\" to \"base_link\": %s", ex.what());
+					ROS_ERROR("Received an exception trying to transform a point from \"%s\" to \"%s\": %s",CAMERA_DEPTH_FRAME, TARGET_FRAME, ex.what());
 				}
 			}
 			else {
@@ -214,7 +214,7 @@ private:
 									base_point.point.x, base_point.point.y, base_point.point.z, base_point.header.stamp.toSec());
 				}
 				catch(tf::TransformException& ex) {
-					ROS_ERROR("Received an exception trying to transform a point from \"camera_top_depth_optical_frame\" to \"base_link\": %s", ex.what());
+					ROS_ERROR("Received an exception trying to transform a point from \"%s\" to \"%s\": %s", CAMERA_DEPTH_FRAME, TARGET_FRAME, ex.what());
 				}
 			}
 			if (!FLAG_pub_obj_pos) {
@@ -222,7 +222,7 @@ private:
 				msg.action = "locate";
 				msg.target = "object";
 				msg.mission_state = "success";
-				msg.results.vision.header.frame_id = "/base_link";
+				msg.results.vision.header.frame_id = TARGET_FRAME;
 				msg.results.vision.space_coords.x = base_point.point.x;
 				msg.results.vision.space_coords.y = base_point.point.y;
 				msg.results.vision.space_coords.z = base_point.point.z;
