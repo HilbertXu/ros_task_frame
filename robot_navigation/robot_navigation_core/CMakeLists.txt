@@ -7,6 +7,8 @@ project(robot_navigation_core)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
+find_package(Eigen3 REQUIRED)
+
 find_package(catkin REQUIRED COMPONENTS
   actionlib
   actionlib_msgs
@@ -110,7 +112,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
+  INCLUDE_DIRS include
   LIBRARIES navigation
   CATKIN_DEPENDS actionlib actionlib_msgs geometry_msgs message_generation move_base_msgs roscpp rospy std_msgs
   DEPENDS system_lib
@@ -162,10 +164,6 @@ target_link_libraries(gpsr_navigation ${catkin_LIBRARIES})
 
 add_executable(get_pose src/get_pose.cpp)
 target_link_libraries(get_pose ${catkin_LIBRARIES})
-
-add_executable(test_callback src/test_callback.cpp)
-target_link_libraries(test_callback ${catkin_LIBRARIES})
-
 
 
 #############
