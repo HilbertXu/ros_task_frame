@@ -32,29 +32,21 @@
 
 // ROS
 #include <ros/ros.h>
-#include <std_msgs/String.h>
-#include <std_msgs/Float64.h>
-#include <sensor_msgs/Image.h>
 #include <ros/callback_queue.h>
-#include <geometry_msgs/Twist.h>
-#include <geometry_msgs/Point.h>
-#include <tf/transform_listener.h>
+#include <std_msgs/Float64.h>
+#include <std_msgs/String.h>
+#include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
-#include <tf2/LinearMath/Vector3.h>
-#include <geometry_msgs/Quaternion.h>
-#include <tf2/LinearMath/Matrix3x3.h>
-#include <dynamixel_msgs/JointState.h>
 #include <opencv_apps/FaceArrayStamped.h>
 #include <opencv_apps/RotatedRectStamped.h>
+#include <dynamixel_msgs/JointState.h>
 #include <trajectory_msgs/JointTrajectory.h>
 #include <trajectory_msgs/JointTrajectoryPoint.h>
 
-// Eigen3
-
-#include <Eigen/Core>
-#include <Eigen/Dense>
-#include <Eigen/Geometry> 
-#include <Eigen/StdVector>
+// Move robot action server
+#include <actionlib/client/simple_action_client.h>
+#include <actionlib/client/terminal_state.h>
+#include <robot_navigation_msgs/MoveRobotAction.h>
 
 //Subscribers Synchronizer 
 #include <message_filters/subscriber.h>
@@ -68,8 +60,6 @@
 #include <robot_vision_msgs/BoundingBoxes.h>
 #include <robot_vision_msgs/HumanPoses.h>
 
-#define PI 3.1415926
-
 // Define synchronizer policy
 typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState, robot_vision_msgs::BoundingBoxes> YoloSyncPolicy;
 typedef message_filters::Synchronizer<YoloSyncPolicy> YoloSync;
@@ -82,6 +72,7 @@ typedef message_filters::Synchronizer<ColorSyncPolicy> ColorSync;
 
 typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState, opencv_apps::FaceArrayStamped> FaceSyncPolicy;
 typedef message_filters::Synchronizer<FaceSyncPolicy> FaceSync;
+
 
 namespace target_tracker {
   // Distance calculate function
@@ -133,7 +124,7 @@ namespace target_tracker {
       return u_increment;
     }
   };
-  
+
   class TargetShift {
   public:
     //! Constructor
@@ -149,14 +140,16 @@ namespace target_tracker {
     int currY_;
     int preCurrX_;
     int preCurrY_;
-    int frameCount_;
     float currPanJointState_;
     float currLiftJointState_;
     std::string track_;
     std::string targetName_;
+    float turnedAngle_ = 0;
+    int staticFrameCount_ = 0;
 
     // FLAG
     bool FLAG_start_track = false;
+    bool FLAG_turn_base = true;
 
     // ROS NodeHandle
     ros::NodeHandle nodeHandle_;
@@ -164,7 +157,6 @@ namespace target_tracker {
     // ROS subscribers & publishers
     ros::Publisher headPanJointPublisher_;
     ros::Publisher headLiftJointPublisher_;
-    ros::Publisher cmdVelPublisher_;
     
     ros::Subscriber cameraInfoSubscriber_;
     ros::Subscriber controlSubscriber_;
@@ -182,6 +174,8 @@ namespace target_tracker {
     boost::shared_ptr<ColorSync> colorSync;
     boost::shared_ptr<FaceSync> faceSync;
 
+    actionlib::SimpleActionClient<robot_navigation_msgs::MoveRobotAction> actionClient_;
+
     // Initial function
     void init();
 
@@ -196,9 +190,6 @@ namespace target_tracker {
 
     // Camera info callback function
     void cameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &msg);
-
-    // Arm joint state sync callback
-    void jointStateCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state);
 
     // Synchronized callback function 1. <JointState-10hz, JointState-10hz, bounding_boxes-3hz>
     void yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::BoundingBoxesConstPtr &msg);

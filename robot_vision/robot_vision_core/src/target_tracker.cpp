@@ -11,7 +11,10 @@
 
 using namespace target_tracker;
 
-TargetShift::TargetShift(ros::NodeHandle nh, int argc, char** argv): nodeHandle_(nh) {
+TargetShift::TargetShift(ros::NodeHandle nh, int argc, char** argv): nodeHandle_(nh), actionClient_("/move_robot_server", true) {
+  ROS_INFO("[TargetTracker] Waiting for MoveRobotServer...");
+  actionClient_.waitForServer();
+
   ROS_INFO("[TargetTracker] Initializing...");
   // Initialize basic subscribers and publishers
   init();
@@ -29,6 +32,7 @@ TargetShift::TargetShift(ros::NodeHandle nh, int argc, char** argv): nodeHandle_
   } else {
     ROS_INFO("[TargetTracker] Waiting for command from control node...");
   }
+
 }
 
 TargetShift::~TargetShift() {
@@ -80,12 +84,20 @@ void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
         printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
         float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
         if (frame2frameDistance > 10) {
-          dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+        staticFrameCount_ = 0;
+        dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
         }
-        // 如果识别到多个目标物体怎么办。。。
-        // 目前尝试方案：识别到目标物体后直接break出当前循环
+        else {
+          staticFrameCount_ += 1;
+        }
         break;
       }
+    }
+    if (staticFrameCount_ == 6 && FLAG_turn_base) {
+      robot_navigation_msgs::MoveRobotGoal goal;
+      goal.angle = turnedAngle_;
+      actionClient_.sendGoal(goal);
+      FLAG_turn_base = false;
     }
   }
 }
@@ -104,7 +116,18 @@ void TargetShift::colorTrackCallback(const dynamixel_msgs::JointStateConstPtr &p
     printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
     float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
     if (frame2frameDistance > 10) {
+      staticFrameCount_ = 0;
       dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+    }
+    else {
+      staticFrameCount_ += 1;
+    }
+
+    if (staticFrameCount_ == 6 && FLAG_turn_base) {
+      robot_navigation_msgs::MoveRobotGoal goal;
+      goal.angle = turnedAngle_;
+      actionClient_.sendGoal(goal);
+      FLAG_turn_base = false;
     }
   }
 }
@@ -125,8 +148,18 @@ void TargetShift::faceTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
       printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
       float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
       if (frame2frameDistance > 10) {
+        staticFrameCount_ = 0;
         dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
       }
+      else {
+        staticFrameCount_ += 1;
+      }
+    }
+    if (staticFrameCount_ == 6 && FLAG_turn_base) {
+      robot_navigation_msgs::MoveRobotGoal goal;
+      goal.angle = turnedAngle_;
+      actionClient_.sendGoal(goal);
+      FLAG_turn_base = false;
     }
   }
 }
@@ -147,9 +180,20 @@ void TargetShift::faceWithNameTrackCallback(const dynamixel_msgs::JointStateCons
         printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
         float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
         if (frame2frameDistance > 10) {
+          staticFrameCount_ = 0;
           dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
         }
+        else {
+          staticFrameCount_ += 1;
+        }
+        break;
       }
+    }
+    if (staticFrameCount_ == 6 && FLAG_turn_base) {
+      robot_navigation_msgs::MoveRobotGoal goal;
+      goal.angle = turnedAngle_;
+      actionClient_.sendGoal(goal);
+      FLAG_turn_base = false;
     }
   }
 }
@@ -173,10 +217,20 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
         printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
         float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
         if (frame2frameDistance > 10) {
+          staticFrameCount_ = 0;
           dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+        }
+        else {
+          staticFrameCount_ += 1;
         }
         break;
       }
+    }
+    if (staticFrameCount_ == 6 && FLAG_turn_base) {
+      robot_navigation_msgs::MoveRobotGoal goal;
+      goal.angle = turnedAngle_;
+      actionClient_.sendGoal(goal);
+      FLAG_turn_base = false;
     }
   }
 }
@@ -186,6 +240,7 @@ void TargetShift::dynamixelControl(int curr_x, int curr_y, float pan_state, floa
   int error_x = centerX_ - curr_x;
   int error_y = centerY_ - curr_y;
   printf("X error: %d, Y error: %d\n", error_x, error_y);
+  turnedAngle_ += error_x*scale;
 
   float next_state_pan =  pan_state + error_x*scale;
   float next_state_lift = lift_state - error_y*scale;
@@ -208,26 +263,21 @@ void TargetShift::init() {
   std::string controlTopicName_;
   int controlQueueSize_;
 
-  std::string cmdVelTopicName_;
-  int cmdVelQueueSize_;
-  bool cmdVelLatch_;
-
   nodeHandle_.param("subscribers/camera_info/topic", cameraInfoTopicName_, std::string("/camera/rgb/camera_info"));
   nodeHandle_.param("subscribers/camera_info/queue_size", cameraInfoQueueSize_, 1);
   nodeHandle_.param("subscribers/control_to_vision/topic", controlTopicName_, std::string("/control_to_vision"));
   nodeHandle_.param("subscribers/control_to_vision/queue_size", controlQueueSize_, 1);
-  nodeHandle_.param("publishers/cmd_vel/topic", cmdVelTopicName_, std::string("/cmd_vel_mux/input/navi"));
-  nodeHandle_.param("publishers/cmd_vel/queue_size", cmdVelQueueSize_, 1);
-  nodeHandle_.param("publishers/cmd_vel/latch", cmdVelLatch_, false);
 
   headPanJointPublisher_  = nodeHandle_.advertise<std_msgs::Float64>("/head_pan_joint/command", 1, false);
   headLiftJointPublisher_ = nodeHandle_.advertise<std_msgs::Float64>("/head_lift_joint/command", 1, false);
-  cmdVelPublisher_        = nodeHandle_.advertise<geometry_msgs::Twist>(cmdVelTopicName_, cmdVelQueueSize_, cmdVelLatch_);
   cameraInfoSubscriber_   = nodeHandle_.subscribe(cameraInfoTopicName_, 1, &TargetShift::cameraInfoCallback, this);
   controlSubscriber_      = nodeHandle_.subscribe(controlTopicName_, 1, &TargetShift::controlCallback, this);
 }
 
 void TargetShift::setTrackTarget() {
+  // Initialize parameters
+  staticFrameCount_ = 0;
+  turnedAngle_ = 0;
   if (track_ == "yolo") {
     ROS_INFO("[TargetTracker] Setting Synchronizer <JointState, JointState, bounding_boxes>, Callback: yoloTrackCallback");
 

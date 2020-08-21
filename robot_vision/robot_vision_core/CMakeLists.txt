@@ -20,6 +20,7 @@ find_package(catkin REQUIRED COMPONENTS
   message_filters
   message_generation
   robot_control_msgs
+  robot_navigation_msgs
   darknet_ros_msgs
   cv_bridge
   geometry_msgs
@@ -191,8 +192,8 @@ target_link_libraries(target_localization ${catkin_LIBRARIES} ${OpenCV_LIBRARIES
 add_executable(fake_camera src/fake_camera.cpp)
 target_link_libraries(fake_camera ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
-add_executable(test_kdl src/test_kdl.cpp)
-target_link_libraries(test_kdl ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+#add_executable(test_kdl src/test_kdl.cpp)
+#target_link_libraries(test_kdl ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 #############
 ## Install ##
