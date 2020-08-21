@@ -6,7 +6,7 @@
         唤起turtlebot
     -->
   <!-- 加载地图 -->
-  <arg name="map_file" default="$(find robot_navigation_core)/maps/Jupiter_Office_Room_Laser.yaml" /> 
+  <arg name="map_file" default="$(find robot_navigation_core)/maps/mustar.yaml" /> 
   <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_file)" />
     
   <!-- 设置amcl-->
@@ -26,7 +26,7 @@
   <!-- 3D visualization -->
   <include file="$(find turtlebot_rviz_launchers)/launch/view_navigation.launch" />
 
-  <node pkg="kamerider_navigation_core" type="gpsr_navigation" name="gpsr_navigation" launch-prefix="xterm -e"/>
+  <node pkg="robot_navigation_core" type="robot_navigation" name="robot_navigation" launch-prefix="xterm -e"/>
   <!-- 
         手柄操作设置如下
   -->

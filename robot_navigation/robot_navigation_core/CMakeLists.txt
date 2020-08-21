@@ -2,12 +2,15 @@ cmake_minimum_required(VERSION 2.8.3)
 project(robot_navigation_core)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
+
 find_package(Eigen3 REQUIRED)
+include_directories(${EIGEN3_INCLUDE_DIR})
+add_definitions(${EIGEN_DEFINITIONS})
 
 find_package(catkin REQUIRED COMPONENTS
   actionlib
@@ -19,6 +22,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  tf
 )
 
 ## System dependencies are found with CMake's conventions
@@ -125,7 +129,7 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  include
   ${catkin_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
 )
@@ -159,11 +163,15 @@ include_directories(
 # target_link_libraries(${PROJECT_NAME}_node
 #   ${catkin_LIBRARIES}
 # )
-add_executable(gpsr_navigation src/gpsr_navigation.cpp)
-target_link_libraries(gpsr_navigation ${catkin_LIBRARIES})
+add_executable(robot_navigation src/robot_navigation.cpp)
+target_link_libraries(robot_navigation ${catkin_LIBRARIES})
 
 add_executable(get_pose src/get_pose.cpp)
 target_link_libraries(get_pose ${catkin_LIBRARIES})
+
+add_executable(move_robot_server src/move_robot_server.cpp)
+target_link_libraries(move_robot_server ${catkin_LIBRARIES})
+
 
 
 #############

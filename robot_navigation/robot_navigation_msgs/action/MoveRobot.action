@@ -1,0 +1,13 @@
+# Goal definition
+float64 angle
+float64 distance
+
+---
+# Result definition
+string angle_result
+string distance_result
+
+---
+# Feedback
+float64 current_distance
+float64 current_angle

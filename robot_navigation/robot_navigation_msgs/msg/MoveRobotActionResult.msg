@@ -2,4 +2,4 @@
 
 Header header
 actionlib_msgs/GoalStatus status
-turn_robotFeedback feedback
+MoveRobotResult result

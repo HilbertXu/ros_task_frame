@@ -37,7 +37,7 @@ private:
 	std::string target;
 	std::string location;
 	// ROS params
-	std::string sub_speech_control_topic_name;
+	std::string sub_control_topic_name;
 	std::string pub_nav_result_topic_name;
 	// ROS publisher & subscriber
 	ros::Publisher nav_pub;
@@ -79,7 +79,7 @@ private:
 
     void set_poses() {
 			ifstream waypoints;
-			waypoints.open("/home/robot/mustar_robot/src/robot_navigation_core/gpsr_waypoints.txt", ios::out);
+			waypoints.open("/home/mustar/mustar_robot/src/robot_navigation/robot_navigation_core/gpsr_waypoints.txt", ios::out);
 			string data, line;
 			vector<string> str; 
 			gpsr_navigation::location_pose temp;
@@ -128,6 +128,7 @@ private:
 			action = msg.action;
 			target = msg.target;
 			location = msg.attributes.navi.location;
+			std::cout << action << " " << target << " " << location <<std::endl;
 			if (action == "navigate") {
 				for(int i=0;i<poses.size();i++) {
 					if(poses[i].location_name == location) {
@@ -160,11 +161,11 @@ public:
 		// Set params
 		start_navigating = false;
 
-		nh.param<std::string>("sub_speech_control_topic_name", sub_speech_control_topic_name, "/control_to_nav");
+		nh.param<std::string>("sub_speech_control_topic_name", sub_control_topic_name, "/control_to_nav");
 		nh.param<std::string>("pub_nav_result_topic_name",     pub_nav_result_topic_name,     "/nav_to_control");
 
 		nav_pub    = nh.advertise<robot_control_msgs::Feedback>(pub_nav_result_topic_name, 1);
-		control_sub = nh.subscribe(sub_speech_control_topic_name, 1, &gpsr_navigation::controlCallback, this);
+		control_sub = nh.subscribe(sub_control_topic_name, 1, &gpsr_navigation::controlCallback, this);
 
 		MoveBaseClient mc_("move_base", true);
 		move_base_msgs::MoveBaseGoal nav_goal;

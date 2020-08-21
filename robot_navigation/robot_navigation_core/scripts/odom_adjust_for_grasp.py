@@ -23,7 +23,7 @@
 """
 
 import rospy
-from std_msgs.msg import String
+from std_msgs.msg import String, Float64
 from geometry_msgs.msg import Twist, Point, Quaternion
 import tf
 from rbx1_nav.transform_utils import quat_to_angle, normalize_angle
@@ -54,7 +54,7 @@ class OdomAdjust():
         self.goal_distance = 0
 
         # Set the rotation speed in radians per second
-        self.angular_speed = 0.5
+        self.angular_speed = 0.25
         
         # Set the angular tolerance in degrees converted to radians
         self.angular_tolerance = radians(1.0)
@@ -66,9 +66,6 @@ class OdomAdjust():
         self.required_pos.x = 0.3756
         self.required_pos.y  = 0.01619
 
-        self.total_dis_x = 0
-        self.total_dis_y = 0
-
         # Initialize the tf listener
         self.tf_listener = tf.TransformListener()
         
@@ -79,11 +76,12 @@ class OdomAdjust():
         self.odom_frame = '/odom'
         
         rospy.Subscriber("/control_to_nav", Mission, self.control_callback)
+        rospy.Subscriber("/angle", Float64, self.angle_callback)
         #Set a publisher to mark the end
         self.pub_to_control_topic_name = '/nav_to_control'
-        self.pub_to_control = rospy.Publisher(self.pub_to_control_topic_name, Feedback, queue_size=1)
-
-    def adjust_robot(self, dis_x, dis_y, target):
+        self.pub_to_control = rospy.Publisher("/nav_to_control", Feedback, queue_size=1)
+    
+    def angle_callback(self, msg): 
         # Find out if the robot uses /base_link or /base_footprint
         try:
             self.tf_listener.waitForTransform(self.odom_frame, '/base_footprint', rospy.Time(), rospy.Duration(1.0))
@@ -95,8 +93,34 @@ class OdomAdjust():
             except (tf.Exception, tf.ConnectivityException, tf.LookupException):
                 rospy.loginfo("Cannot find transform between /odom and /base_link or /base_footprint")
                 rospy.signal_shutdown("tf Exception")  
-        rospy.loginfo("Distance X: {}".format(dis_x))
-        rospy.loginfo("Distance Y: {}".format(dis_y))
+        print("start adjust")
+        angle = msg.data
+        position = Point()
+        # Get the starting position values     
+        (position, rotation) = self.get_odom()
+        self.move_around(angle,rotation)
+
+
+    def control_callback(self, msg):       
+        # Find out if the robot uses /base_link or /base_footprint
+        try:
+            self.tf_listener.waitForTransform(self.odom_frame, '/base_footprint', rospy.Time(), rospy.Duration(1.0))
+            self.base_frame = '/base_footprint'
+        except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+            try:
+                self.tf_listener.waitForTransform(self.odom_frame, '/base_link', rospy.Time(), rospy.Duration(1.0))
+                self.base_frame = '/base_link'
+            except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+                rospy.loginfo("Cannot find transform between /odom and /base_link or /base_footprint")
+                rospy.signal_shutdown("tf Exception")  
+        print("start adjust")
+        # Read target pos from Mission msg
+        target_pos = msg.attributes.vision.space_coords
+        #Compute the move distance
+        dis_x = target_pos.x - self.required_pos.x + 0.05
+        dis_y = target_pos.y - self.required_pos.y
+        print(dis_x)
+        print(dis_y)
         # Initialize the position variable as a Point type
         position = Point()
         # Get the starting position values     
@@ -117,25 +141,9 @@ class OdomAdjust():
         rospy.sleep(1)
         msg = Feedback()
         msg.action = "approach"
-        msg.target = target
+        msg.target = "object"
         msg.mission_state = "success"
         self.pub_to_control.publish(msg)
-
-    def control_callback(self, msg):      
-        if msg.action == "approach": 
-            if msg.target == "start_point":
-                rospy.loginfo("Now go back to the start point")
-                self.adjust_robot(-self.total_dis_x, -self.total_dis_y, "start_point")
-            else:
-                rospy.loginfo("start adjust")
-                # Read target pos from Mission msg
-                target_pos = msg.attributes.vision.space_coords
-                #Compute the move distance
-                dis_x = target_pos.x - self.required_pos.x + 0.05
-                dis_y = target_pos.y - self.required_pos.y
-                self.total_dis_x += dis_x
-                self.total_dis_y += dis_y
-                self.adjust_robot(dis_x, dis_y, msg.target)
     
     def get_odom(self):
         # Get the current transform between the odom and base frames
@@ -181,7 +189,7 @@ class OdomAdjust():
         move_cmd = Twist()
         self.cmd_vel.publish(move_cmd)
         rospy.sleep(1)
-        rospy.loginfo("go {} meters long end!".format(goal_distance))
+        print("go {} meters long end!".format(goal_distance))
         return
 
 
@@ -219,7 +227,7 @@ class OdomAdjust():
         move_cmd = Twist()
         self.cmd_vel.publish(move_cmd)
         rospy.sleep(1)
-        rospy.loginfo("Turn {} radius  end!".format(goal_radius))
+        print("Turn {} radius  end!".format(goal_radius))
 
     def shutdown(self):
         # Always stop the robot when shutting down the node.
@@ -230,4 +238,5 @@ class OdomAdjust():
 if __name__ == '__main__':    
     OdomAdjust()
     rospy.spin()
+
 

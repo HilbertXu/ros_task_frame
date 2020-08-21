@@ -14,24 +14,14 @@ find_package(catkin REQUIRED
     message_generation
 )
 
-add_message_files(
-  FILES
-    NavPos.msg
-)
-
 add_action_files(
-  FILES
-    turn_robot.action
+   FILES
+   MoveRobot.action
 )
-
 generate_messages(
-  DEPENDENCIES
-    actionlib_msgs
-    geometry_msgs
-    nav_msgs
-    move_base_msgs
-    std_msgs
-)
+   DEPENDENCIES
+   std_msgs 
+   actionlib_msgs)
 
 catkin_package(
   CATKIN_DEPENDS
