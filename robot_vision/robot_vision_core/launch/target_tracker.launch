@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<launch>
+  <!-- Console launch prefix -->
+  <arg name="launch_prefix" default=""/>
+  <arg name="target_tracker/track" default="yolo"/>
+  <arg name="target_tracker/target" default="bottle"/>
+
+  <!-- Config and weights folder. -->
+  <node pkg="robot_navigation_core" type="move_robot_server" name="move_robot_server" output="screen" launch-prefix="xetrm-e"/>
+
+  <!-- Start darknet and ros wrapper -->
+  <node pkg="robot_vision_core" type="target_tracker" name="target_tracker" output="screen" launch-prefix="$(arg launch_prefix)">
+    <param name="target_tracker/track"          value="$(arg target_tracker/track)" />
+    <param name="target_tracker/target"         value="$(arg target_tracker/target)"/>
+  </node>
+
+</launch>

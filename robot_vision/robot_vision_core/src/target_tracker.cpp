@@ -29,6 +29,11 @@ TargetShift::TargetShift(ros::NodeHandle nh, int argc, char** argv): nodeHandle_
     }
     ROS_INFO("[TargetTracker] Received track target: %s %s", argv[2], argv[4]);
     setTrackTarget();
+  } else if(nodeHandle_.hasParam("/target_tracker/track") && nodeHandle_.hasParam("/target_tracker/target")){
+    nodeHandle_.getParam("/target_tracker/track", track_);
+    nodeHandle_.getParam("/target_tracker/target", targetName_);
+    ROS_INFO("[TargetTracker] Read track target: %s %s from rosparam", track_.c_str(), targetName_.c_str());
+    setTrackTarget();
   } else {
     ROS_INFO("[TargetTracker] Waiting for command from control node...");
   }
@@ -93,7 +98,9 @@ void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
         break;
       }
     }
+    std::cout << staticFrameCount_ << std::endl;
     if (staticFrameCount_ == 6 && FLAG_turn_base) {
+      ROS_INFO("[TargetTrack] Start focusing move base...");
       robot_navigation_msgs::MoveRobotGoal goal;
       goal.angle = turnedAngle_;
       actionClient_.sendGoal(goal);
@@ -244,7 +251,7 @@ void TargetShift::dynamixelControl(int curr_x, int curr_y, float pan_state, floa
 
   float next_state_pan =  pan_state + error_x*scale;
   float next_state_lift = lift_state - error_y*scale;
-  printf("Current pan: %f, lift: %f -> Next pan: %f, lift: %f",pan_state, lift_state, next_state_pan, next_state_lift);
+  printf("Current pan: %f, lift: %f -> Next pan: %f, lift: %f\n",pan_state, lift_state, next_state_pan, next_state_lift);
   
   std_msgs::Float64 msg_pan;
   std_msgs::Float64 msg_lift;
