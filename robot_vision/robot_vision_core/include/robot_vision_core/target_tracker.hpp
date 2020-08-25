@@ -57,6 +57,7 @@
 #include <robot_control_msgs/Mission.h>
 #include <robot_control_msgs/Results.h>
 #include <robot_control_msgs/Feedback.h>
+#include <robot_control_msgs/PixelCoords.h>
 #include <robot_vision_msgs/BoundingBoxes.h>
 #include <robot_vision_msgs/HumanPoses.h>
 
@@ -148,8 +149,9 @@ namespace target_tracker {
     int staticFrameCount_ = 0;
 
     // FLAG
+    bool FLAG_under_control = false;
     bool FLAG_start_track = false;
-    bool FLAG_turn_base = true;
+    bool FLAG_turn_base = false;
 
     // ROS NodeHandle
     ros::NodeHandle nodeHandle_;
@@ -157,6 +159,8 @@ namespace target_tracker {
     // ROS subscribers & publishers
     ros::Publisher headPanJointPublisher_;
     ros::Publisher headLiftJointPublisher_;
+    ros::Publisher controlPublisher_;
+    ros::Publisher targetPointPublisher_;
     
     ros::Subscriber cameraInfoSubscriber_;
     ros::Subscriber controlSubscriber_;
@@ -181,6 +185,9 @@ namespace target_tracker {
 
     // Set track target function
     void setTrackTarget();
+
+    // Actionlib callbacks
+    void doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotActionResultConstPtr &result);
 
     // Control dynamixel motors according to current (x,y) and current motors state
     void dynamixelControl(int curr_x, int curr_y, float pan_state, float lift_state, float scale);

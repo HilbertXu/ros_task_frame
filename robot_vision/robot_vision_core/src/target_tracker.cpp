@@ -12,32 +12,39 @@
 using namespace target_tracker;
 
 TargetShift::TargetShift(ros::NodeHandle nh, int argc, char** argv): nodeHandle_(nh), actionClient_("/move_robot_server", true) {
+  // 等待控制机器人移动的服务端启动
   ROS_INFO("[TargetTracker] Waiting for MoveRobotServer...");
   actionClient_.waitForServer();
-
-  ROS_INFO("[TargetTracker] Initializing...");
-  // Initialize basic subscribers and publishers
-  init();
-  if (argc == 5) {
-    // -track <yolo/openpose/color/face>
-    if (std::string(argv[1]) == "-track") {
-      track_ = std::string(argv[2]);
-      // -target <object name/human id/color/face id>
-      if (std::string(argv[3]) == "-target") {
-        targetName_ = std::string(argv[4]);
+  // 判断节点是否处于控制节点的控制下
+  if (nodeHandle_.getParam("/under_control", FLAG_under_control)) {
+    if (FLAG_under_control) {
+      // 如果节点处在控制节点的控制下，则等待控制节点发布跟踪目标(yolo/openpose/color/face)，跟踪对象(target name)
+      ROS_INFO("[TargetTracker] Waiting for command from control node...");
+      init();
+    } else {
+      // 如果节点不处在控制节点控制下，首先确认是否存在控制台输入参数
+      if (argc == 5) {
+        // -track <yolo/openpose/color/face> 
+        if (std::string(argv[1]) == "-track") {
+          track_ = std::string(argv[2]);
+          // -target <object name/human id/color/face id>
+          if (std::string(argv[3]) == "-target") {
+            targetName_ = std::string(argv[4]);
+          }
+        }
+        ROS_INFO("[TargetTracker] Received track target: %s %s", argv[2], argv[4]);
+        setTrackTarget();
+      } else {
+        // 如果没有控制台输入参数，检查rosparam服务器中是否存在参数
+        if(nodeHandle_.hasParam("/target_tracker/track") && nodeHandle_.hasParam("/target_tracker/target")){
+          nodeHandle_.getParam("/target_tracker/track", track_);
+          nodeHandle_.getParam("/target_tracker/target", targetName_);
+          ROS_INFO("[TargetTracker] Read track target: %s %s from rosparam", track_.c_str(), targetName_.c_str());
+          setTrackTarget();
+        }
       }
     }
-    ROS_INFO("[TargetTracker] Received track target: %s %s", argv[2], argv[4]);
-    setTrackTarget();
-  } else if(nodeHandle_.hasParam("/target_tracker/track") && nodeHandle_.hasParam("/target_tracker/target")){
-    nodeHandle_.getParam("/target_tracker/track", track_);
-    nodeHandle_.getParam("/target_tracker/target", targetName_);
-    ROS_INFO("[TargetTracker] Read track target: %s %s from rosparam", track_.c_str(), targetName_.c_str());
-    setTrackTarget();
-  } else {
-    ROS_INFO("[TargetTracker] Waiting for command from control node...");
   }
-
 }
 
 TargetShift::~TargetShift() {
@@ -71,6 +78,19 @@ void TargetShift::controlCallback(const robot_control_msgs::MissionConstPtr &msg
   }
 }
 
+void TargetShift::doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotActionResultConstPtr &result) {
+  ROS_INFO("Finished in state [%s]", state.toString().c_str());
+  // 完成底盘对齐后
+  if (result->result.angle_result == "success") {
+    robot_control_msgs::PixelCoords msg;
+    msg.pixel_x = currX_;
+    msg.pixel_y = currY_;
+    if (!targetPointPublisher_.getTopic().empty()) {
+      targetPointPublisher_.publish(msg);
+    }
+  }
+}
+
 void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::BoundingBoxesConstPtr &msg) {
   if (FLAG_start_track) {
     std::cout << "======================= Enter Sync callback ===========================" << std::endl;
@@ -82,29 +102,43 @@ void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
       if (msg->bounding_boxes[i].Class == targetName_) {
         // 保留上一帧中的识别框中心点
         preCurrX_ = currX_;
-        preCurrY_ = currX_;
+        preCurrY_ = currY_;
         // 记录当前识别框的中心点
         currX_ = int((msg->bounding_boxes[i].xmax + msg->bounding_boxes[i].xmin) / 2);
         currY_ = int((msg->bounding_boxes[i].ymax + msg->bounding_boxes[i].ymin) / 2);
+        // 输出前一帧识别框和当前帧识别框
         printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+        // 计算两帧识别框中心间的距离
         float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
+        // 如果两帧识别框中心间距离超过10像素，则认为这一帧间运动无法被忽略，控制头部相机跟随物体
         if (frame2frameDistance > 10) {
-        staticFrameCount_ = 0;
-        dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+          // 如果帧间运动无法忽略，则将静止帧计数清零，并控制电机
+          staticFrameCount_ = 0;
+          dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
         }
-        else {
+        // 如果两帧识别框中心间距离不超过10像素
+        else if (staticFrameCount_ == 6){
+          // 如果累计静止帧等于6帧，则开始调整机器人底盘
+          // 同时将静止帧计数增加1，避免重复调用移动机器人的服务
+          staticFrameCount_ += 1;
+          // 调整FLAG，开始对准底盘
+          FLAG_turn_base = true;
+        } else {
+          // 如果累计静止帧不等于6帧，则将其+1
           staticFrameCount_ += 1;
         }
         break;
       }
     }
     std::cout << staticFrameCount_ << std::endl;
-    if (staticFrameCount_ == 6 && FLAG_turn_base) {
+    if (staticFrameCount_ == 7 && FLAG_turn_base) {
       ROS_INFO("[TargetTrack] Start focusing move base...");
-      robot_navigation_msgs::MoveRobotGoal goal;
-      goal.angle = turnedAngle_;
-      actionClient_.sendGoal(goal);
-      FLAG_turn_base = false;
+      if (turnedAngle_ > 0.1) {
+        robot_navigation_msgs::MoveRobotGoal goal;
+        goal.angle = turnedAngle_;
+        actionClient_.sendGoal(goal);
+        FLAG_turn_base = false;
+      }
     }
   }
 }
@@ -116,7 +150,7 @@ void TargetShift::colorTrackCallback(const dynamixel_msgs::JointStateConstPtr &p
     currPanJointState_ = pan_state->current_pos;
     currLiftJointState_ = lift_state->current_pos;
     preCurrX_ = currX_;
-    preCurrY_ = currX_;
+    preCurrY_ = currY_;
     // 记录当前识别框的中心点
     currX_ = int(msg->rect.center.x);
     currY_ = int(msg->rect.center.y);
@@ -126,15 +160,20 @@ void TargetShift::colorTrackCallback(const dynamixel_msgs::JointStateConstPtr &p
       staticFrameCount_ = 0;
       dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
     }
-    else {
+    else if (staticFrameCount_ == 6){
+      staticFrameCount_ += 1;
+      FLAG_turn_base = true;
+    } else {
       staticFrameCount_ += 1;
     }
 
-    if (staticFrameCount_ == 6 && FLAG_turn_base) {
-      robot_navigation_msgs::MoveRobotGoal goal;
-      goal.angle = turnedAngle_;
-      actionClient_.sendGoal(goal);
-      FLAG_turn_base = false;
+    if (staticFrameCount_ == 7 && FLAG_turn_base) {
+      if (turnedAngle_ > 0.1) {
+        robot_navigation_msgs::MoveRobotGoal goal;
+        goal.angle = turnedAngle_;
+        actionClient_.sendGoal(goal);
+        FLAG_turn_base = false;
+      }
     }
   }
 }
@@ -148,7 +187,7 @@ void TargetShift::faceTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
     // 记录当前识别框的中心点
     if (msg->faces.size() > 0) {
       preCurrX_ = currX_;
-      preCurrY_ = currX_;
+      preCurrY_ = currY_;
       int face_id = atoi(targetName_.c_str());
       currX_ = int(msg->faces[face_id].face.x);
       currY_ = int(msg->faces[face_id].face.y);
@@ -158,15 +197,20 @@ void TargetShift::faceTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
         staticFrameCount_ = 0;
         dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
       }
-      else {
+      else if (staticFrameCount_ == 6){
+        staticFrameCount_ += 1;
+        FLAG_turn_base = true;
+      } else {
         staticFrameCount_ += 1;
       }
     }
-    if (staticFrameCount_ == 6 && FLAG_turn_base) {
-      robot_navigation_msgs::MoveRobotGoal goal;
-      goal.angle = turnedAngle_;
-      actionClient_.sendGoal(goal);
-      FLAG_turn_base = false;
+    if (staticFrameCount_ == 7 && FLAG_turn_base) {
+      if (turnedAngle_ > 0.1) {
+        robot_navigation_msgs::MoveRobotGoal goal;
+        goal.angle = turnedAngle_;
+        actionClient_.sendGoal(goal);
+        FLAG_turn_base = false;
+      }
     }
   }
 }
@@ -181,7 +225,7 @@ void TargetShift::faceWithNameTrackCallback(const dynamixel_msgs::JointStateCons
     for (int i=0; i<msg->faces.size(); i++) {
       if (msg->faces[i].label == std::string(targetName_)) {
         preCurrX_ = currX_;
-        preCurrY_ = currX_;
+        preCurrY_ = currY_;
         currX_ = int(msg->faces[i].face.x);
         currY_ = int(msg->faces[i].face.y);
         printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
@@ -190,17 +234,22 @@ void TargetShift::faceWithNameTrackCallback(const dynamixel_msgs::JointStateCons
           staticFrameCount_ = 0;
           dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
         }
-        else {
+        else if (staticFrameCount_ == 6){
+          staticFrameCount_ += 1;
+          FLAG_turn_base = true;
+        } else {
           staticFrameCount_ += 1;
         }
         break;
       }
     }
-    if (staticFrameCount_ == 6 && FLAG_turn_base) {
-      robot_navigation_msgs::MoveRobotGoal goal;
-      goal.angle = turnedAngle_;
-      actionClient_.sendGoal(goal);
-      FLAG_turn_base = false;
+    if (staticFrameCount_ == 7 && FLAG_turn_base) {
+      if (turnedAngle_ > 0.1) {
+        robot_navigation_msgs::MoveRobotGoal goal;
+        goal.angle = turnedAngle_;
+        actionClient_.sendGoal(goal);
+        FLAG_turn_base = false;
+      }
     }
   }
 }
@@ -217,7 +266,7 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
       if (std::string(msg->poses[i].pose) == targetName_) {
         // 保留上一帧中的识别框中心点
         preCurrX_ = currX_;
-        preCurrY_ = currX_;
+        preCurrY_ = currY_;
         // 记录当前识别框的中心点
         currX_ = int(msg->poses[i].Chest.x);
         currY_ = int(msg->poses[i].Chest.y);
@@ -227,17 +276,22 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
           staticFrameCount_ = 0;
           dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
         }
-        else {
+        else if (staticFrameCount_ == 6){
+          staticFrameCount_ += 1;
+          FLAG_turn_base = true;
+        } else {
           staticFrameCount_ += 1;
         }
         break;
       }
     }
-    if (staticFrameCount_ == 6 && FLAG_turn_base) {
-      robot_navigation_msgs::MoveRobotGoal goal;
-      goal.angle = turnedAngle_;
-      actionClient_.sendGoal(goal);
-      FLAG_turn_base = false;
+    if (staticFrameCount_ == 7 && FLAG_turn_base) {
+      if (turnedAngle_ > 0.1) {
+        robot_navigation_msgs::MoveRobotGoal goal;
+        goal.angle = turnedAngle_;
+        actionClient_.sendGoal(goal);
+        FLAG_turn_base = false;
+      }
     }
   }
 }
@@ -247,7 +301,7 @@ void TargetShift::dynamixelControl(int curr_x, int curr_y, float pan_state, floa
   int error_x = centerX_ - curr_x;
   int error_y = centerY_ - curr_y;
   printf("X error: %d, Y error: %d\n", error_x, error_y);
-  turnedAngle_ += error_x*scale;
+  turnedAngle_ = pan_state + error_x*scale;
 
   float next_state_pan =  pan_state + error_x*scale;
   float next_state_lift = lift_state - error_y*scale;
@@ -267,18 +321,51 @@ void TargetShift::init() {
   std::string cameraInfoTopicName_;
   int cameraInfoQueueSize_;
 
-  std::string controlTopicName_;
-  int controlQueueSize_;
-
   nodeHandle_.param("subscribers/camera_info/topic", cameraInfoTopicName_, std::string("/camera/rgb/camera_info"));
   nodeHandle_.param("subscribers/camera_info/queue_size", cameraInfoQueueSize_, 1);
-  nodeHandle_.param("subscribers/control_to_vision/topic", controlTopicName_, std::string("/control_to_vision"));
-  nodeHandle_.param("subscribers/control_to_vision/queue_size", controlQueueSize_, 1);
 
+  // 初始化接收相机属性的订阅器
+  cameraInfoSubscriber_   = nodeHandle_.subscribe(cameraInfoTopicName_, 1, &TargetShift::cameraInfoCallback, this);
+  // 初始化发布电机关节角度的publisher
   headPanJointPublisher_  = nodeHandle_.advertise<std_msgs::Float64>("/head_pan_joint/command", 1, false);
   headLiftJointPublisher_ = nodeHandle_.advertise<std_msgs::Float64>("/head_lift_joint/command", 1, false);
-  cameraInfoSubscriber_   = nodeHandle_.subscribe(cameraInfoTopicName_, 1, &TargetShift::cameraInfoCallback, this);
-  controlSubscriber_      = nodeHandle_.subscribe(controlTopicName_, 1, &TargetShift::controlCallback, this);
+
+  // 如果处于控制节点控制，则初始化一系列与控制节点相关的订阅器和发布器
+  if (FLAG_under_control) {
+    std::string cameraInfoTopicName_;
+    int cameraInfoQueueSize_;
+
+    std::string controlSubTopicName_;
+    int controlSubQueueSize_;
+
+    std::string controlPubTopicName_;
+    int controlPubQueueSize_;
+    bool controlPubLatch_;
+
+    nodeHandle_.param("subscribers/camera_info/topic", cameraInfoTopicName_, std::string("/camera/rgb/camera_info"));
+    nodeHandle_.param("subscribers/camera_info/queue_size", cameraInfoQueueSize_, 1);
+    nodeHandle_.param("subscribers/control_to_vision/topic", controlSubTopicName_, std::string("/control_to_vision"));
+    nodeHandle_.param("subscribers/control_to_vision/queue_size", controlSubQueueSize_, 1);
+    nodeHandle_.param("publishers/vision_to_control/topic", controlPubTopicName_, std::string("/vision_to_control"));
+    nodeHandle_.param("publishers/vision_to_control/queue_size", controlSubQueueSize_, 1);
+    nodeHandle_.param("publishers/vision_to_control/latch", controlPubLatch_, bool(false));
+
+    // 初始化订阅control节点命令的订阅器
+    controlSubscriber_      = nodeHandle_.subscribe(controlSubTopicName_, 1, &TargetShift::controlCallback, this);
+    // 初始化向control节点发送反馈的发布器
+    controlPublisher_       = nodeHandle_.advertise<robot_control_msgs::Feedback>(controlPubTopicName_, controlPubQueueSize_, controlPubLatch_);
+  } else {
+    std::string targetPointPubTopicName_;
+    int targetPointPubQueueSize_;
+    bool targetPointPubLatch_;
+    
+    nodeHandle_.param("publishers/target_point/topic", targetPointPubTopicName_, std::string("/robot_vision/target_point"));
+    nodeHandle_.param("publishers/target_point/queue_size", targetPointPubQueueSize_, 1);
+    nodeHandle_.param("publishers/target_point/latch", targetPointPubLatch_, bool(false));
+
+    targetPointPublisher_ = nodeHandle_.advertise<robot_control_msgs::PixelCoords>(targetPointPubTopicName_, targetPointPubQueueSize_, targetPointPubLatch_);
+
+  }
 }
 
 void TargetShift::setTrackTarget() {
