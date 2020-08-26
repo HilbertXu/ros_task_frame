@@ -23,6 +23,8 @@ add_message_files(
     BoundingBox.msg
     BoundingBoxes.msg
     ObjectCount.msg
+    PixelPoint.msg
+    SpacePoint.msg
 )
 
 add_action_files(
