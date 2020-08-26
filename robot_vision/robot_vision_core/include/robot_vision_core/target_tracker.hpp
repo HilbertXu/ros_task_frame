@@ -57,7 +57,7 @@
 #include <robot_control_msgs/Mission.h>
 #include <robot_control_msgs/Results.h>
 #include <robot_control_msgs/Feedback.h>
-#include <robot_control_msgs/PixelCoords.h>
+#include <robot_vision_msgs/PixelPoint.h>
 #include <robot_vision_msgs/BoundingBoxes.h>
 #include <robot_vision_msgs/HumanPoses.h>
 
@@ -74,6 +74,7 @@ typedef message_filters::Synchronizer<ColorSyncPolicy> ColorSync;
 typedef message_filters::sync_policies::ApproximateTime<dynamixel_msgs::JointState, dynamixel_msgs::JointState, opencv_apps::FaceArrayStamped> FaceSyncPolicy;
 typedef message_filters::Synchronizer<FaceSyncPolicy> FaceSync;
 
+typedef actionlib::SimpleActionClient<robot_navigation_msgs::MoveRobotAction> MoveRobotActionClient;
 
 namespace target_tracker {
   // Distance calculate function
@@ -145,6 +146,7 @@ namespace target_tracker {
     float currLiftJointState_;
     std::string track_;
     std::string targetName_;
+    std::string frameId_;
     float turnedAngle_ = 0;
     int staticFrameCount_ = 0;
 
@@ -152,6 +154,7 @@ namespace target_tracker {
     bool FLAG_under_control = false;
     bool FLAG_start_track = false;
     bool FLAG_turn_base = false;
+    bool FLAG_base_focused = false;
 
     // ROS NodeHandle
     ros::NodeHandle nodeHandle_;
@@ -187,8 +190,8 @@ namespace target_tracker {
     void setTrackTarget();
 
     // Actionlib callbacks
-    void doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotActionResultConstPtr &result);
-
+    void doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotResultConstPtr &result);
+    
     // Control dynamixel motors according to current (x,y) and current motors state
     void dynamixelControl(int curr_x, int curr_y, float pan_state, float lift_state, float scale);
 
