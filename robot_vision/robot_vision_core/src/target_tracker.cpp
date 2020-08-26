@@ -15,34 +15,43 @@ TargetShift::TargetShift(ros::NodeHandle nh, int argc, char** argv): nodeHandle_
   // 等待控制机器人移动的服务端启动
   ROS_INFO("[TargetTracker] Waiting for MoveRobotServer...");
   actionClient_.waitForServer();
-  // 判断节点是否处于控制节点的控制下
-  if (nodeHandle_.getParam("/under_control", FLAG_under_control)) {
-    if (FLAG_under_control) {
-      // 如果节点处在控制节点的控制下，则等待控制节点发布跟踪目标(yolo/openpose/color/face)，跟踪对象(target name)
-      ROS_INFO("[TargetTracker] Waiting for command from control node...");
-      init();
-    } else {
-      // 如果节点不处在控制节点控制下，首先确认是否存在控制台输入参数
-      if (argc == 5) {
-        // -track <yolo/openpose/color/face> 
-        if (std::string(argv[1]) == "-track") {
+
+  //设定节点状态参数FLAG_under_control
+  if (nodeHandle_.hasParam("/under_control")) {
+    // 如果rosparam服务器中存在/under_control参数
+    nodeHandle_.getParam("/under_control", FLAG_under_control);
+  } else {
+    // 如果参数服务器中不存在名为/under_control的参数，则默认进入非控模式
+    FLAG_under_control = false;
+  }
+
+  // 初始化基础订阅器和发布器
+  init();
+  
+  // 逻辑判断部分
+  if (FLAG_under_control) {
+    // 如果节点处在控制节点的控制下，则等待控制节点发布跟踪目标(yolo/openpose/color/face)，跟踪对象(target name)
+    ROS_INFO("[TargetTracker] Waiting for command from control node...");
+  } else {
+    // 如果节点不处在控制节点控制下，首先确认是否存在控制台输入参数
+    if (argc == 5) {
+      // 控制台参数格式 -track <yolo/openpose/color/face> -target <object name/human id/color/face id>
+      if (std::string(argv[1]) == "-track") {
+        if (std::string(argv[3]) == "-target") {
           track_ = std::string(argv[2]);
-          // -target <object name/human id/color/face id>
-          if (std::string(argv[3]) == "-target") {
-            targetName_ = std::string(argv[4]);
-          }
-        }
-        ROS_INFO("[TargetTracker] Received track target: %s %s", argv[2], argv[4]);
-        setTrackTarget();
-      } else {
-        // 如果没有控制台输入参数，检查rosparam服务器中是否存在参数
-        if(nodeHandle_.hasParam("/target_tracker/track") && nodeHandle_.hasParam("/target_tracker/target")){
-          nodeHandle_.getParam("/target_tracker/track", track_);
-          nodeHandle_.getParam("/target_tracker/target", targetName_);
-          ROS_INFO("[TargetTracker] Read track target: %s %s from rosparam", track_.c_str(), targetName_.c_str());
-          setTrackTarget();
+          targetName_ = std::string(argv[4]);
         }
       }
+      setTrackTarget();
+      ROS_INFO("[TargetTracker] Received track target: %s %s", argv[2], argv[4]);
+    } else if(nodeHandle_.hasParam("/target_tracker/track") && nodeHandle_.hasParam("/target_tracker/target")){
+        //如果没有控制台的输入参数，检查rosparam服务器中是否存在参数
+        nodeHandle_.getParam("/target_tracker/track", track_);
+        nodeHandle_.getParam("/target_tracker/target", targetName_);
+        ROS_INFO("[TargetTracker] Read track target: %s %s from rosparam", track_.c_str(), targetName_.c_str());
+        setTrackTarget();
+    } else {
+      ROS_ERROR ("[TargetTracker] Lack of parameters! Check for you rosparam!");
     }
   }
 }
@@ -55,6 +64,7 @@ void TargetShift::cameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &msg)
   if (centerX_ == 0 && centerY_ == 0) {
     centerX_ = int(msg->width/2);
     centerY_ = int(msg->height/2);
+    frameId_ = msg->header.frame_id;
     FLAG_start_track = true;
     ROS_INFO("[CameraInfo] Setting pixel_center_x: %d, pixel_center_y:%d", centerX_, centerY_);
   }
@@ -78,18 +88,14 @@ void TargetShift::controlCallback(const robot_control_msgs::MissionConstPtr &msg
   }
 }
 
-void TargetShift::doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotActionResultConstPtr &result) {
+void TargetShift::doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotResultConstPtr &result) {
   ROS_INFO("Finished in state [%s]", state.toString().c_str());
   // 完成底盘对齐后
-  if (result->result.angle_result == "success") {
-    robot_control_msgs::PixelCoords msg;
-    msg.pixel_x = currX_;
-    msg.pixel_y = currY_;
-    if (!targetPointPublisher_.getTopic().empty()) {
-      targetPointPublisher_.publish(msg);
-    }
+  if (result->angle_result == "success") {
+    FLAG_base_focused = true;
   }
 }
+
 
 void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::BoundingBoxesConstPtr &msg) {
   if (FLAG_start_track) {
@@ -130,14 +136,32 @@ void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
         break;
       }
     }
+    // 在底盘对准物体后，等待相机平稳
+    if (staticFrameCount_ == 3 && FLAG_base_focused) {
+      std::cout << targetPointPublisher_.getTopic() << std::endl;
+      robot_vision_msgs::PixelPoint msg;
+      msg.header.stamp = ros::Time::now();
+      msg.image_header.frame_id = frameId_;
+      msg.pixel_x = currX_;
+      msg.pixel_y = currY_;
+      // 根据发布器是否订阅话题来判断是否需要发布目标位置
+      if (!targetPointPublisher_.getTopic().empty()) {
+        targetPointPublisher_.publish(msg);
+      }
+    }
     std::cout << staticFrameCount_ << std::endl;
-    if (staticFrameCount_ == 7 && FLAG_turn_base) {
-      ROS_INFO("[TargetTrack] Start focusing move base...");
-      if (turnedAngle_ > 0.1) {
+    if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
+      if (fabs(turnedAngle_) > 0.1) {
+        ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
         robot_navigation_msgs::MoveRobotGoal goal;
         goal.angle = turnedAngle_;
-        actionClient_.sendGoal(goal);
+        actionClient_.sendGoal(goal, 
+                               boost::bind(&TargetShift::doneCallback, this, _1, _2));
         FLAG_turn_base = false;
+      } else {
+        staticFrameCount_ = 0;
+        FLAG_turn_base = false;
+        FLAG_base_focused = true;
       }
     }
   }
@@ -166,13 +190,29 @@ void TargetShift::colorTrackCallback(const dynamixel_msgs::JointStateConstPtr &p
     } else {
       staticFrameCount_ += 1;
     }
+    if (staticFrameCount_ == 3 && FLAG_base_focused) {
+      robot_vision_msgs::PixelPoint msg;
+      msg.header.stamp = ros::Time::now();
+      msg.image_header.frame_id = frameId_;
+      msg.pixel_x = currX_;
+      msg.pixel_y = currY_;
+      if (!targetPointPublisher_.getTopic().empty()) {
+        targetPointPublisher_.publish(msg);
+      }
+    }
 
-    if (staticFrameCount_ == 7 && FLAG_turn_base) {
-      if (turnedAngle_ > 0.1) {
+    if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
+      if (fabs(turnedAngle_) > 0.1) {
+        ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
         robot_navigation_msgs::MoveRobotGoal goal;
         goal.angle = turnedAngle_;
-        actionClient_.sendGoal(goal);
+        actionClient_.sendGoal(goal, 
+                               boost::bind(&TargetShift::doneCallback, this, _1, _2));
         FLAG_turn_base = false;
+      } else {
+        staticFrameCount_ = 0;
+        FLAG_turn_base = false;
+        FLAG_base_focused = true;
       }
     }
   }
@@ -204,12 +244,29 @@ void TargetShift::faceTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
         staticFrameCount_ += 1;
       }
     }
-    if (staticFrameCount_ == 7 && FLAG_turn_base) {
-      if (turnedAngle_ > 0.1) {
+    if (staticFrameCount_ == 3 && FLAG_base_focused) {
+      robot_vision_msgs::PixelPoint msg;
+      msg.header.stamp = ros::Time::now();
+      msg.image_header.frame_id = frameId_;
+      msg.pixel_x = currX_;
+      msg.pixel_y = currY_;
+      if (!targetPointPublisher_.getTopic().empty()) {
+        targetPointPublisher_.publish(msg);
+      }
+    }
+
+    if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
+      if (fabs(turnedAngle_) > 0.1) {
+        ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
         robot_navigation_msgs::MoveRobotGoal goal;
         goal.angle = turnedAngle_;
-        actionClient_.sendGoal(goal);
+        actionClient_.sendGoal(goal, 
+                               boost::bind(&TargetShift::doneCallback, this, _1, _2));
         FLAG_turn_base = false;
+      } else {
+        staticFrameCount_ = 0;
+        FLAG_turn_base = false;
+        FLAG_base_focused = true;
       }
     }
   }
@@ -243,12 +300,29 @@ void TargetShift::faceWithNameTrackCallback(const dynamixel_msgs::JointStateCons
         break;
       }
     }
-    if (staticFrameCount_ == 7 && FLAG_turn_base) {
-      if (turnedAngle_ > 0.1) {
+    if (staticFrameCount_ == 3 && FLAG_base_focused) {
+      robot_vision_msgs::PixelPoint msg;
+      msg.header.stamp = ros::Time::now();
+      msg.image_header.frame_id = frameId_;
+      msg.pixel_x = currX_;
+      msg.pixel_y = currY_;
+      if (!targetPointPublisher_.getTopic().empty()) {
+        targetPointPublisher_.publish(msg);
+      }
+    }
+
+    if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
+      if (fabs(turnedAngle_) > 0.1) {
+        ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
         robot_navigation_msgs::MoveRobotGoal goal;
         goal.angle = turnedAngle_;
-        actionClient_.sendGoal(goal);
+        actionClient_.sendGoal(goal, 
+                               boost::bind(&TargetShift::doneCallback, this, _1, _2));
         FLAG_turn_base = false;
+      } else {
+        staticFrameCount_ = 0;
+        FLAG_turn_base = false;
+        FLAG_base_focused = true;
       }
     }
   }
@@ -285,12 +359,29 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
         break;
       }
     }
-    if (staticFrameCount_ == 7 && FLAG_turn_base) {
-      if (turnedAngle_ > 0.1) {
+    if (staticFrameCount_ == 3 && FLAG_base_focused) {
+      robot_vision_msgs::PixelPoint msg;
+      msg.header.stamp = ros::Time::now();
+      msg.image_header.frame_id = frameId_;
+      msg.pixel_x = currX_;
+      msg.pixel_y = currY_;
+      if (!targetPointPublisher_.getTopic().empty()) {
+        targetPointPublisher_.publish(msg);
+      }
+    }
+
+    if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
+      if (fabs(turnedAngle_) > 0.1) {
+        ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
         robot_navigation_msgs::MoveRobotGoal goal;
         goal.angle = turnedAngle_;
-        actionClient_.sendGoal(goal);
+        actionClient_.sendGoal(goal, 
+                               boost::bind(&TargetShift::doneCallback, this, _1, _2));
         FLAG_turn_base = false;
+      } else {
+        staticFrameCount_ = 0;
+        FLAG_turn_base = false;
+        FLAG_base_focused = true;
       }
     }
   }
@@ -351,19 +442,19 @@ void TargetShift::init() {
     nodeHandle_.param("publishers/vision_to_control/latch", controlPubLatch_, bool(false));
 
     // 初始化订阅control节点命令的订阅器
-    controlSubscriber_      = nodeHandle_.subscribe(controlSubTopicName_, 1, &TargetShift::controlCallback, this);
+    controlSubscriber_  = nodeHandle_.subscribe(controlSubTopicName_, 1, &TargetShift::controlCallback, this);
     // 初始化向control节点发送反馈的发布器
-    controlPublisher_       = nodeHandle_.advertise<robot_control_msgs::Feedback>(controlPubTopicName_, controlPubQueueSize_, controlPubLatch_);
+    controlPublisher_   = nodeHandle_.advertise<robot_control_msgs::Feedback>(controlPubTopicName_, controlPubQueueSize_, controlPubLatch_);
   } else {
     std::string targetPointPubTopicName_;
     int targetPointPubQueueSize_;
     bool targetPointPubLatch_;
     
-    nodeHandle_.param("publishers/target_point/topic", targetPointPubTopicName_, std::string("/robot_vision/target_point"));
+    nodeHandle_.param("publishers/target_point/topic", targetPointPubTopicName_, std::string("/robot_vision/pixel_point"));
     nodeHandle_.param("publishers/target_point/queue_size", targetPointPubQueueSize_, 1);
     nodeHandle_.param("publishers/target_point/latch", targetPointPubLatch_, bool(false));
 
-    targetPointPublisher_ = nodeHandle_.advertise<robot_control_msgs::PixelCoords>(targetPointPubTopicName_, targetPointPubQueueSize_, targetPointPubLatch_);
+    targetPointPublisher_ = nodeHandle_.advertise<robot_vision_msgs::PixelPoint>(targetPointPubTopicName_, targetPointPubQueueSize_, targetPointPubLatch_);
 
   }
 }
