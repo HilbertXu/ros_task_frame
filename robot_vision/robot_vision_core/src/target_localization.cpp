@@ -1,281 +1,288 @@
 /*
-    Date: 2019/03/13
-    Author: Xu Yucheng 
-    Abstract: object detection with yolo, 3D-position predict with PCL
-*/
-#define PI 3.1415926
+ * target_localization.cpp
+ * 
+ *  Created on: Aug 26th, 2020
+ *      Author: Hilbert Xu
+ *   Institute: Mustar Robot
+ *   使用前修改头部电机速度为0.1
+ */
 
-// common headers
-#include <iostream>
-#include <stdio.h>
-#include <string.h>
-#include <vector>
-#include <cmath>
-#include <sstream>
+#include <robot_vision_core/target_localization.hpp>
 
-// OpenCV headers
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/opencv.hpp>
+using namespace target_localization;
 
-// ROS headers
-#include <ros/ros.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <tf/transform_listener.h>
-#include <tf2/LinearMath/Matrix3x3.h>
-#include <tf2/LinearMath/Vector3.h>
-#include <image_transport/image_transport.h>
-#include <sensor_msgs/image_encodings.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <pcl/point_cloud.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <cv_bridge/cv_bridge.h>
-#include <std_msgs/String.h>
-#include <std_msgs/Float32.h>
-#include <geometry_msgs/PointStamped.h>
+TargetLocate::TargetLocate(ros::NodeHandle nh, int argc, char** argv):nodeHandle_(nh) {
+  // 从rosparam参数服务器中读取参数
+  if (nodeHandle_.hasParam("/under_control")) {
+    // 如果存在/under_control参数
+    nodeHandle_.getParam("/under_control", FLAG_under_control);
+  } else {
+    // 如果参数服务器中不存在名为/under_control的参数，则默认进入非控模式
+    FLAG_under_control = false;
+  }
 
-// user-defined ROS message type
-#include <robot_control_msgs/Mission.h>
-#include <robot_control_msgs/Feedback.h>
+  // 初始化基础订阅器和发布器
+  init();
 
-// using namespace std;
-// using namespace pcl;
-// using namespace cv;
-
-
-pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_astra (new pcl::PointCloud<pcl::PointXYZ>);
-pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_base (new pcl::PointCloud<pcl::PointXYZ>);
-unsigned char floatBuffer[4];
-    
-bool FLAG_found_object = false;
-bool FLAG_adjust_robot = false;
-bool FLAG_sub_pcl_data = false;
-bool FLAG_pub_obj_pos = false;
-
-int count_detect = 0;
-const int camera_width = 640;
-const int camera_height = 480;
-int object_x = 0;
-int object_y = 0;
-int origin_index = 0;
-int valid_index = 0;
-
-class object_detection {
-private:
-	// ROS parameters
-	std::string sub_bbox_topic_name;
-	std::string sub_pcl_topic_name;
-	std::string sub_image_raw_topic_name;
-	std::string sub_control_topic_name;
-	
-	std::string pub_to_control_topic_name;
-	std::string pub_tf_pcl_topic_name;
-
-	// ROS subscriber & publisher
-	ros::Subscriber bbox_sub;
-	ros::Subscriber pcl_sub;
-	ros::Subscriber img_sub;
-	ros::Subscriber control_sub;
-
-	ros::Publisher control_pub;
-	ros::Publisher pcl_pub;
-
-	// parameters
-	std::string CAMERA_DEPTH_FRAME = "camera_top_depth_frame";
-	std::string TARGET_FRAME;
-
-	// 定义待抓取的物体的名称，初始化为None
-	std::string object_name = "none";
-    
-	int find_near_valid(int idx) {   
-		double temp_min = 9999999999;
-		int return_idx = idx;
-		int obj_row = idx/camera_width;
-		int obj_col = idx%camera_width;
-
-		for (int row=0; row<camera_height; row++) {
-			for (int col=0; col<camera_width; col++) {
-				if (!std::isnan(cloud_astra->points[row*camera_width+col].x) &&
-						!std::isnan(cloud_astra->points[row*camera_width+col].y) &&
-						!std::isnan(cloud_astra->points[row*camera_width+col].z)) {
-					double dis = (row-obj_row)*(row-obj_row) + (col-obj_col)*(col-obj_col);
-					if (dis < temp_min) {
-						return_idx = row*camera_width + col;
-						temp_min = dis;
-					}
-				}
-			}
-		}
-		valid_index = return_idx;
-		return return_idx;
-	}
-
-	void controlCallback(const robot_control_msgs::Mission msg) {
-		if (msg.action == "locate") {
-			// 从control节点处获得目标物体的名称
-			if (msg.target == "object") {
-				object_name = msg.attributes.object.name;
-				//先开启点云处理，等待2s稳定点云数据后再开始图像处理
-				object_x = msg.attributes.vision.pixel_coords.pixel_x;
-				object_y = msg.attributes.vision.pixel_coords.pixel_y;
-				std::cout << "Received target object: " << object_name << ", pixel coordinates: " << "(" << object_x << "," << object_y << ")" << std::endl;
-				TARGET_FRAME = "/base_link";
-				FLAG_sub_pcl_data = true;
-			}
-			// 在空间中(/map)定位目标人物的地图坐标
-			else if (msg.target == "human") {
-				object_x = msg.attributes.vision.pixel_coords.pixel_x;
-				object_y = msg.attributes.vision.pixel_coords.pixel_y;
-				std::cout << "Received target object: " << object_name << ", pixel coordinates: " << "(" << object_x << "," << object_y << ")" << std::endl;
-				TARGET_FRAME = "/map";
-				FLAG_sub_pcl_data = true;
-			}
-		}
-	}
-
-	void imageCallback (const sensor_msgs::ImageConstPtr& msg) {
-		if (!cloud_astra->empty()) {
-			int ori_row = origin_index / camera_width;
-			int ori_col = origin_index % camera_width;
-			int val_row = valid_index / camera_width;
-			int val_col = valid_index % camera_width;
-			cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-			cv::Mat img = cv_ptr->image;
-			cv::Point ori(ori_col, ori_row);
-			cv::Point val(val_col, val_row);
-
-			circle(img, ori, 3, cv::Scalar(0,0,255), -1);
-			circle(img, val, 3, cv::Scalar(255,0,0), -1);
-
-			cv::imshow("object_detection", img);
-			cv::waitKey(10);
-		}
-	}
-
-	void pclCallback(sensor_msgs::PointCloud2 msg) {
-		// 机器人到达抓取位置之后开始监听点云变换
-		if (FLAG_sub_pcl_data == true) {
-			// 储存原始点云数据
-			pcl::fromROSMsg (msg, *cloud_astra);
-		}
-	}
-
-	void get_object_position()
-	{
-		if (cloud_astra->empty()) {
-			ROS_INFO ("Waiting for pcl transform");
-			sleep (2);
-		}
-		else {
-			geometry_msgs::PointStamped cam_pos;
-			geometry_msgs::PointStamped base_point;
-			cam_pos.header.frame_id = "/camera_top_depth_optical_frame";
-			origin_index = object_y * camera_width + object_x;
-			robot_control_msgs::Feedback msg;
-			tf::TransformListener pListener;
-
-			if (std::isnan(cloud_astra->points[origin_index].x) || 
-					std::isnan(cloud_astra->points[origin_index].y) ||
-					std::isnan(cloud_astra->points[origin_index].z)) {  
-				ROS_INFO("Fix invalid point cloud, Finding the nearest valid point");
-				int new_index = find_near_valid(origin_index);
-				cam_pos.header.stamp = ros::Time(0);
-				cam_pos.point.x = cloud_astra->points[new_index].x;
-				cam_pos.point.y = cloud_astra->points[new_index].y;
-				cam_pos.point.z = cloud_astra->points[new_index].z;
-
-				try {
-					ROS_INFO("Listening for the tf transform");
-					pListener.waitForTransform(CAMERA_DEPTH_FRAME, TARGET_FRAME, ros::Time(0), ros::Duration(3.0));
-					pListener.transformPoint(TARGET_FRAME, cam_pos, base_point);
-					ROS_INFO("%s: (%.2f, %.2f. %.2f) -----> %s: (%.2f, %.2f, %.2f) at time %.2f",
-									CAMERA_DEPTH_FRAME,
-									cam_pos.point.x, cam_pos.point.y, cam_pos.point.z,
-									TARGET_FRAME,
-									base_point.point.x, base_point.point.y, base_point.point.z, base_point.header.stamp.toSec());
-				}
-				catch(tf::TransformException& ex) {
-					ROS_ERROR("Received an exception trying to transform a point from \"%s\" to \"%s\": %s",CAMERA_DEPTH_FRAME, TARGET_FRAME, ex.what());
-				}
-			}
-			else {
-				ROS_INFO("Congraz! Current point is valid");
-				cam_pos.header.stamp = ros::Time(0);
-				cam_pos.point.x = cloud_astra->points[origin_index].x;
-				cam_pos.point.y = cloud_astra->points[origin_index].y;
-				cam_pos.point.z = cloud_astra->points[origin_index].z;
-				try {
-					ROS_INFO("Listening for the tf transform");
-					pListener.waitForTransform(CAMERA_DEPTH_FRAME, TARGET_FRAME, ros::Time(0), ros::Duration(3.0));
-					pListener.transformPoint(TARGET_FRAME, cam_pos, base_point);
-					ROS_INFO("%s: (%.2f, %.2f. %.2f) -----> %s: (%.2f, %.2f, %.2f) at time %.2f",
-									CAMERA_DEPTH_FRAME,
-									cam_pos.point.x, cam_pos.point.y, cam_pos.point.z,
-									TARGET_FRAME,
-									base_point.point.x, base_point.point.y, base_point.point.z, base_point.header.stamp.toSec());
-				}
-				catch(tf::TransformException& ex) {
-					ROS_ERROR("Received an exception trying to transform a point from \"%s\" to \"%s\": %s", CAMERA_DEPTH_FRAME, TARGET_FRAME, ex.what());
-				}
-			}
-			if (!FLAG_pub_obj_pos) {
-				// 控制发布器只发布一次消息
-				msg.action = "locate";
-				msg.target = "object";
-				msg.mission_state = "success";
-				msg.results.vision.header.frame_id = TARGET_FRAME;
-				msg.results.vision.space_coords.x = base_point.point.x;
-				msg.results.vision.space_coords.y = base_point.point.y;
-				msg.results.vision.space_coords.z = base_point.point.z;
-				control_pub.publish(msg);
-				FLAG_pub_obj_pos = true;
-			}
-		}
-	}
-
-public:
-	int run (int argc, char** argv) {
-		ROS_INFO("----------INIT----------");
-		ros::init (argc, argv, "object_localization");
-		ros::NodeHandle nh;
-		ROS_INFO("----Waiting for image----");
-
-		nh.param<std::string>("sub_pcl_topic_name",        sub_pcl_topic_name,        "/camera_top/depth/points");
-		nh.param<std::string>("sub_image_raw_topic_name",  sub_image_raw_topic_name,  "/camera_top/rgb/image_raw");
-		nh.param<std::string>("sub_control_topic_name",    sub_control_topic_name,    "/control_to_vision");
-
-		nh.param<std::string>("pub_to_control_topic_name", pub_to_control_topic_name, "/vision_to_control");
-		nh.param<std::string>("pub_tf_pcl_topic_name",     pub_tf_pcl_topic_name,     "/base_link_pcl");
-
-		pcl_sub = nh.subscribe(sub_pcl_topic_name, 1, &object_detection::pclCallback, this);
-		img_sub = nh.subscribe(sub_image_raw_topic_name, 1, &object_detection::imageCallback, this);
-		control_sub = nh.subscribe(sub_control_topic_name, 1, &object_detection::controlCallback, this);
-		
-		control_pub = nh.advertise<robot_control_msgs::Feedback>(pub_to_control_topic_name, 1);
-		pcl_pub = nh.advertise<sensor_msgs::PointCloud2>(pub_tf_pcl_topic_name, 1);
-		
-		std::cout << "Receving message from topics: " << std::endl;
-		std::cout << "--------------------------" << std::endl;
-		std::cout << "\t" << sub_bbox_topic_name << std::endl;
-		std::cout << "\t" << sub_pcl_topic_name << std::endl;
-		std::cout << "\t" << sub_control_topic_name << std::endl;
-		std::cout << "\t" << sub_image_raw_topic_name << std::endl;
-		std::cout << "--------------------------" << std::endl;
-		std::cout << "Publishing message to topics: " << std::endl;
-		std::cout << "--------------------------" << std::endl;
-		std::cout << "\t" << pub_to_control_topic_name << std::endl;
-		std::cout << "\t" << pub_tf_pcl_topic_name << std::endl;
-		std::cout << "--------------------------" << std::endl;
-
-		while (ros::ok()) {
-			get_object_position();
-			ros::spinOnce();
-		}
-	}
-
-};
-
-int main(int argc, char** argv) {
-	object_detection detector;
-	return detector.run(argc, argv);
+  // 逻辑判断部分
+  if (FLAG_under_control) {
+    // 如果节点处在控制节点的控制下，则等待控制节点发布跟踪目标(yolo/openpose/color/face)，跟踪对象(target name)
+    ROS_INFO("[TargetLocate] Waiting for command from control node...");
+  } else {
+    // 如果节点不处在控制节点的控制下，首先确认是否存在控制台输入参数
+    if (argc == 5) {
+      // 控制台参数格式 -source_frame <frame_name> -target_frame <frame_name>
+      if (std::string(argv[1]) == "-source_frame") {
+        if (std::string(argv[3]) == "-target_frame") {
+          sourceFrame_ = std::string(argv[2]);
+          targetFrame_ = std::string(argv[4]);
+          ROS_INFO("[TargetLocate] Transform from: %s -> %s", argv[2], argv[4]);
+        }
+      }
+    } else if (nodeHandle_.hasParam("/target_localization/source_frame") && nodeHandle_.hasParam("/target_localization/target_frame")) {
+      //如果没有控制台的输入参数，检查rosparam服务器中是否存在参数
+      nodeHandle_.getParam("/target_localization/source_frame", sourceFrame_);
+      nodeHandle_.getParam("/target_localization/target_frame", targetFrame_);
+      ROS_INFO("[TargetLocate] Transform from: %s -> %s", sourceFrame_.c_str(), targetFrame_.c_str());
+    } else {
+      ROS_ERROR ("[TargetLocate] Lack of parameters! Check for you rosparam!");
+    }
+  }
 }
+
+TargetLocate::~TargetLocate() {
+  ROS_INFO("[TargetLocate] Shutting down...");
+}
+
+void TargetLocate::init () {
+  std::string cameraInfoTopicName_;
+  int cameraInfoQueueSize_;
+
+  std::string pclTopicName_;
+  int pclQueueSize_;
+
+  std::string imageTopicName_;
+  int imageQueueSize_;
+
+  nodeHandle_.param("subscribers/camera_info/topic", cameraInfoTopicName_, std::string("/camera_top/rgb/camera_info"));
+  nodeHandle_.param("subscribers/camera_info/queue_size", cameraInfoQueueSize_, 1);
+  nodeHandle_.param("subscribers/camera_depth/topic", pclTopicName_, std::string("/camera_top/depth/points"));
+  nodeHandle_.param("subscribers/camera_depth/queue_size", pclQueueSize_, 1);
+  nodeHandle_.param("subscribers/camera_rgb/topic", imageTopicName_, std::string("/camera_top/rgb/image_raw"));
+  nodeHandle_.param("subscribers/camera_rgb/queue_size", imageQueueSize_, 1);
+
+  pclSubscriber_        = nodeHandle_.subscribe(pclTopicName_,        pclQueueSize_,        &TargetLocate::pclCallback, this);
+  imageSubscriber_      = nodeHandle_.subscribe(imageTopicName_,      imageQueueSize_,      &TargetLocate::imageCallback, this);
+  cameraInfoSubscriber_ = nodeHandle_.subscribe(cameraInfoTopicName_, cameraInfoQueueSize_, &TargetLocate::cameraInfoCallback, this);
+
+  if (FLAG_under_control) {
+    std::string controlSubTopicName_;
+    int controlSubQueueSize_;
+
+    std::string controlPubTopicName_;
+    int controlPubQueueSize_;
+    bool controlPubLatch_;
+
+    nodeHandle_.param("subscribers/control_to_vision/topic", controlSubTopicName_, std::string("/control_to_vision"));
+    nodeHandle_.param("subscribers/control_to_vision/queue_size", controlSubQueueSize_, 1);
+    nodeHandle_.param("publishers/vision_to_control/topic", controlPubTopicName_, std::string("/vision_to_control"));
+    nodeHandle_.param("publishers/vision_to_control/queue_size", controlSubQueueSize_, 1);
+    nodeHandle_.param("publishers/vision_to_control/latch", controlPubLatch_, bool(false));
+
+    // 初始化订阅control节点命令的订阅器
+    controlSubscriber_      = nodeHandle_.subscribe(controlSubTopicName_, 1, &TargetLocate::controlCallback, this);
+    // 初始化向control节点发送反馈的发布器
+    controlPublisher_       = nodeHandle_.advertise<robot_control_msgs::Feedback>(controlPubTopicName_, controlPubQueueSize_, controlPubLatch_);
+  } else {
+    std::string pixelPointTopicName_;
+    int pixelPointQueueSize_;
+
+    std::string spacePointTopicName_;
+    int spacePointQueueSize_;
+    bool spacePointLatch_;
+
+    nodeHandle_.param("subscribers/pixel_point/topic", pixelPointTopicName_, std::string("/robot_vision/pixel_point"));
+    nodeHandle_.param("subscribers/pixel_point/queue_size", pixelPointQueueSize_, 1);
+    nodeHandle_.param("subscribers/space_point/topic", spacePointTopicName_, std::string("/robot_vision/space_point"));
+    nodeHandle_.param("subscribers/space_point/queue_size", spacePointQueueSize_, 1);
+    nodeHandle_.param("subscribers/space_point/latch", spacePointLatch_, false);
+
+    pixelPointSubscriber_ = nodeHandle_.subscribe(pixelPointTopicName_, pixelPointQueueSize_, &TargetLocate::pixelPointCallback, this);
+    spacePointPublisher_  = nodeHandle_.advertise<robot_vision_msgs::SpacePoint>(spacePointTopicName_, spacePointQueueSize_, spacePointLatch_);
+  }
+
+}
+
+int TargetLocate::findNearValid (int idx) {
+  double temp_min = 9999999999;
+  int return_idx = idx;
+  int obj_row = idx/cameraWidth_;
+  int obj_col = idx%cameraWidth_;
+
+  for (int row=0; row<cameraHeight_; row++) {
+    for (int col=0; col<cameraWidth_; col++) {
+      if (!std::isnan(cloudAstra->points[row*cameraWidth_+col].x) &&
+          !std::isnan(cloudAstra->points[row*cameraWidth_+col].y) &&
+          !std::isnan(cloudAstra->points[row*cameraWidth_+col].z)) {
+        double dis = (row-obj_row)*(row-obj_row) + (col-obj_col)*(col-obj_col);
+        if (dis < temp_min) {
+          return_idx = row*cameraWidth_ + col;
+          temp_min = dis;
+        }
+      }
+    }
+  }
+  validIndex_ = return_idx;
+  return return_idx;
+}
+
+void TargetLocate::pixelPointCallback (const robot_vision_msgs::PixelPointConstPtr &msg) {
+  if (object_x == 0 && object_y == 0) {
+    object_x = msg->pixel_x;
+    object_y = msg->pixel_y;
+    FLAG_sub_pcl_data = true;
+  }
+}
+
+void TargetLocate::cameraInfoCallback (const sensor_msgs::CameraInfoConstPtr &msg) {
+  if (cameraWidth_ == 0 && cameraHeight_ == 0) {
+    cameraHeight_ = msg->height;
+    cameraWidth_  = msg->width;
+  }
+}
+
+void TargetLocate::controlCallback (const robot_control_msgs::MissionConstPtr &msg) {
+  if (msg->action == "locate") {
+    object_x = msg->attributes.vision.pixel_coords.pixel_x;
+    object_y = msg->attributes.vision.pixel_coords.pixel_y;
+    std::cout << "Received pixel coordinates: " << "(" << object_x << "," << object_y << ")" << std::endl;
+    if (msg->target == "object") {
+      sourceFrame_ = "camera_top_depth_frame";
+      targetFrame_ = "/base_link";
+    } else if (msg->target == "human") {
+      sourceFrame_ = "camera_top_depth_frame";
+      targetFrame_ = "/map";
+    }
+    FLAG_sub_pcl_data = true;
+  }
+}
+
+void TargetLocate::imageCallback (const sensor_msgs::ImageConstPtr &msg) {
+  if (!cloudAstra->empty()) {
+    int ori_row = originIndex_ / cameraWidth_;
+    int ori_col = originIndex_ % cameraWidth_;
+    int val_row = validIndex_ / cameraWidth_;
+    int val_col = validIndex_ % cameraWidth_;
+    cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+    cv::Mat img = cv_ptr->image;
+    cv::Point ori(ori_col, ori_row);
+    cv::Point val(val_col, val_row);
+
+    circle(img, ori, 3, cv::Scalar(0,0,255), -1);
+    circle(img, val, 3, cv::Scalar(255,0,0), -1);
+
+    cv::imshow("target_localization", img);
+    cv::waitKey(10);
+  }
+}
+
+void TargetLocate::pclCallback (sensor_msgs::PointCloud2 msg) {
+  if (FLAG_sub_pcl_data == true) {
+    // 储存原始点云数据
+    pcl::fromROSMsg (msg, *cloudAstra);
+  }
+}
+
+void TargetLocate::transformTarget() {
+  if (cloudAstra->empty()) {
+    ROS_INFO ("[TargetLocate] Waiting for pcl transform...");
+    sleep (2);
+  } else {
+    geometry_msgs::PointStamped cam_pos;
+    geometry_msgs::PointStamped base_point;
+    cam_pos.header.frame_id = sourceFrame_;
+    originIndex_ = object_y * cameraWidth_ + object_x;
+    tf::TransformListener pListener;
+
+    if (std::isnan(cloudAstra->points[originIndex_].x) || 
+        std::isnan(cloudAstra->points[originIndex_].y) ||
+        std::isnan(cloudAstra->points[originIndex_].z)) {  
+      ROS_INFO("Fix invalid point cloud, Finding the nearest valid point");
+      int new_index = findNearValid(originIndex_);
+      cam_pos.header.stamp = ros::Time(0);
+      cam_pos.point.x = cloudAstra->points[new_index].x;
+      cam_pos.point.y = cloudAstra->points[new_index].y;
+      cam_pos.point.z = cloudAstra->points[new_index].z;
+
+      try {
+        ROS_INFO("Listening for the tf transform");
+        pListener.waitForTransform(sourceFrame_, targetFrame_, ros::Time(0), ros::Duration(3.0));
+        pListener.transformPoint(targetFrame_, cam_pos, base_point);
+        ROS_INFO("%s: (%.2f, %.2f. %.2f) -----> %s: (%.2f, %.2f, %.2f) at time %.2f",
+                sourceFrame_.c_str(),
+                cam_pos.point.x, cam_pos.point.y, cam_pos.point.z,
+                targetFrame_.c_str(),
+                base_point.point.x, base_point.point.y, base_point.point.z, base_point.header.stamp.toSec());
+      }
+      catch(tf::TransformException& ex) {
+        ROS_ERROR("Received an exception trying to transform a point from \"%s\" to \"%s\": %s",sourceFrame_.c_str(), targetFrame_.c_str(), ex.what());
+      }
+    } else {
+      ROS_INFO("Congraz! Current point is valid");
+      cam_pos.header.stamp = ros::Time(0);
+      cam_pos.point.x = cloudAstra->points[originIndex_].x;
+      cam_pos.point.y = cloudAstra->points[originIndex_].y;
+      cam_pos.point.z = cloudAstra->points[originIndex_].z;
+      try {
+        ROS_INFO("Listening for the tf transform");
+        pListener.waitForTransform(sourceFrame_, targetFrame_, ros::Time(0), ros::Duration(3.0));
+        pListener.transformPoint(targetFrame_, cam_pos, base_point);
+        ROS_INFO("%s: (%.2f, %.2f. %.2f) -----> %s: (%.2f, %.2f, %.2f) at time %.2f",
+                sourceFrame_.c_str(),
+                cam_pos.point.x, cam_pos.point.y, cam_pos.point.z,
+                targetFrame_.c_str(),
+                base_point.point.x, base_point.point.y, base_point.point.z, base_point.header.stamp.toSec());
+      }
+      catch(tf::TransformException& ex) {
+        ROS_ERROR("Received an exception trying to transform a point from \"%s\" to \"%s\": %s", sourceFrame_.c_str(), targetFrame_.c_str(), ex.what());
+      }
+    }
+
+    if (FLAG_pub_obj_pos && FLAG_under_control) {
+      // 控制发布器只发布一次消息
+      robot_control_msgs::Feedback msg;
+      msg.action = "locate";
+      msg.target = "object";
+      msg.mission_state = "success";
+      msg.results.vision.header.frame_id = targetFrame_;
+      msg.results.vision.space_coords.x = base_point.point.x;
+      msg.results.vision.space_coords.y = base_point.point.y;
+      msg.results.vision.space_coords.z = base_point.point.z;
+      controlPublisher_.publish(msg);
+      FLAG_pub_obj_pos = true;
+    } else if (FLAG_pub_obj_pos && !FLAG_under_control) {
+      robot_vision_msgs::SpacePoint msg;
+      msg.header.stamp = ros::Time::now();
+      msg.image_header.frame_id = targetFrame_;
+      msg.space_x = base_point.point.x;
+      msg.space_y = base_point.point.y;
+      msg.space_z = base_point.point.z;
+      spacePointPublisher_.publish(msg);
+      FLAG_pub_obj_pos = false;
+    }
+  }
+}
+
+
+
+int main (int argc, char** argv) {
+  ros::init(argc, argv, "target_localization");
+  ros::NodeHandle nh("~");
+  target_localization::TargetLocate localizer(nh, argc, argv);
+  while(ros::ok()) {
+    localizer.transformTarget();
+    ros::spinOnce();
+  }
+}
+
 
