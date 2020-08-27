@@ -4,8 +4,8 @@ float64 distance
 
 ---
 # Result definition
-string angle_result
-string distance_result
+geometry_msgs/Quaternion rotation
+geometry_msgs/Vector3 translation
 
 ---
 # Feedback

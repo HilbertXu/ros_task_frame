@@ -163,29 +163,26 @@ void MoveRobotServer::executeCallback(const robot_navigation_msgs::MoveRobotGoal
   // Get current transform from /odom to /base_footprint
   tf::StampedTransform transform = getOdomTransform();
 
-  if (goal->angle != 0.0 && goal->distance != 0.0) {
-    // 先转动机器人再移动机器人
-    turnRobot(loop_rate, goal->angle, transform.getRotation());
-    goForward(loop_rate, goal->distance, transform.getOrigin());
-  } else if (goal->angle != 0.0) {
-    turnRobot(loop_rate, goal->angle, transform.getRotation());
-  } else if (goal->distance != 0.0) {
-    goForward(loop_rate, goal->distance, transform.getOrigin());
-  } else {
-    ROS_INFO("[MoveRobotServer] Nothing to do...");
-  }
+  // Turn robot
+  turnRobot(loop_rate, goal->angle, transform.getRotation());
+
+  // Move robot
+  goForward(loop_rate, goal->distance, transform.getOrigin());
 
   if(FLAG_success)
   {
+    geometry_msgs::Quaternion quat;
+    geometry_msgs::Vector3 trans;
+    quat.x = transform.getRotation().x();
+    quat.y = transform.getRotation().y();
+    quat.z = transform.getRotation().z();
+    quat.w = transform.getRotation().w();
+    trans.x = transform.getOrigin().x();
+    trans.y = transform.getOrigin().y();
+    trans.z = transform.getOrigin().z();
     // uint8 SUCCEEDED=3
-    if (goal->angle != 0.0 && goal->distance != 0.0) {
-      result_.angle_result = "success";
-      result_.distance_result = "success";
-    } else if (goal->angle != 0.0) {
-      result_.angle_result = "success";
-    } else if (goal->distance != 0.0) {
-      result_.distance_result = "success";
-    }
+    result_.rotation = quat;
+    result_.translation = trans;
     ROS_INFO("[MoveRobotServer] Succeeded");
     // set the action state to succeeded
     actionServer_.setSucceeded(result_);
