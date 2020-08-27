@@ -11,7 +11,11 @@
 
 using namespace target_localization;
 
-TargetLocate::TargetLocate(ros::NodeHandle nh, int argc, char** argv):nodeHandle_(nh) {
+TargetLocate::TargetLocate(ros::NodeHandle nh, int argc, char** argv):nodeHandle_(nh), actionClient_("/move_robot_server", true) {
+  // 等待控制机器人移动的服务端启动
+  ROS_INFO("[TargetLocate] Waiting for MoveRobotServer...");
+  actionClient_.waitForServer();
+  
   // 从rosparam参数服务器中读取参数
   if (nodeHandle_.hasParam("/under_control")) {
     // 如果存在/under_control参数
@@ -101,16 +105,29 @@ void TargetLocate::init () {
     int spacePointQueueSize_;
     bool spacePointLatch_;
 
+    std::string naviPointTopic_;
+    int naviPointQueueSize_;
+    bool naviPointLatch_;
+
     nodeHandle_.param("subscribers/pixel_point/topic", pixelPointTopicName_, std::string("/robot_vision/pixel_point"));
     nodeHandle_.param("subscribers/pixel_point/queue_size", pixelPointQueueSize_, 1);
-    nodeHandle_.param("subscribers/space_point/topic", spacePointTopicName_, std::string("/robot_vision/space_point"));
-    nodeHandle_.param("subscribers/space_point/queue_size", spacePointQueueSize_, 1);
-    nodeHandle_.param("subscribers/space_point/latch", spacePointLatch_, false);
+    nodeHandle_.param("publishers/space_point/topic", spacePointTopicName_, std::string("/robot_vision/space_point"));
+    nodeHandle_.param("publishers/space_point/queue_size", spacePointQueueSize_, 1);
+    nodeHandle_.param("publishers/space_point/latch", spacePointLatch_, false);
+    nodeHandle_.param("publishers/navi_point/topic", naviPointTopic_, std::string("/robot_vision/navi_point"));
+    nodeHandle_.param("publishers/navi_point/queue_size", naviPointQueueSize_, 1);
+    nodeHandle_.param("publishers/navi_point/latch", naviPointLatch_, false);
 
     pixelPointSubscriber_ = nodeHandle_.subscribe(pixelPointTopicName_, pixelPointQueueSize_, &TargetLocate::pixelPointCallback, this);
     spacePointPublisher_  = nodeHandle_.advertise<robot_vision_msgs::SpacePoint>(spacePointTopicName_, spacePointQueueSize_, spacePointLatch_);
+    naviPointPublisher_   = nodeHandle_.advertise<geometry_msgs::Pose>(naviPointTopic_, naviPointQueueSize_, naviPointLatch_);
   }
 
+}
+
+void TargetLocate::doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotResultConstPtr &result) {
+  ROS_INFO("Finished in state [%s]", state.toString().c_str());
+  rotation = result->rotation;
 }
 
 int TargetLocate::findNearValid (int idx) {
@@ -140,6 +157,13 @@ void TargetLocate::pixelPointCallback (const robot_vision_msgs::PixelPointConstP
   if (object_x == 0 && object_y == 0) {
     object_x = msg->pixel_x;
     object_y = msg->pixel_y;
+    
+    robot_navigation_msgs::MoveRobotGoal goal;
+    // 发送一个空的移动指令，读取当期机器人的姿态信息
+    goal.angle = 0.0;
+    goal.distance = 0.0;
+    actionClient_.sendGoal(goal, 
+                            boost::bind(&TargetLocate::doneCallback, this, _1, _2));
     FLAG_sub_pcl_data = true;
   }
 }
@@ -268,6 +292,21 @@ void TargetLocate::transformTarget() {
       msg.space_y = base_point.point.y;
       msg.space_z = base_point.point.z;
       spacePointPublisher_.publish(msg);
+
+      robot_navigation_msgs::MoveRobotGoal goal;
+      goal.distance = base_point.point.x - 0.5;
+      actionClient_.sendGoal(goal, 
+                            boost::bind(&TargetLocate::doneCallback, this, _1, _2));
+
+      geometry_msgs::Pose navi;
+      navi.position.x = base_point.point.x;
+      navi.position.y = base_point.point.y;
+      navi.position.z = 0.0;
+      navi.orientation.w = rotation.w;
+      navi.orientation.x = rotation.x;
+      navi.orientation.y = rotation.y;
+      navi.orientation.z = rotation.z;
+      naviPointPublisher_.publish(navi);
       FLAG_pub_obj_pos = false;
     }
   }

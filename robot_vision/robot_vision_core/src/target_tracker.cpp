@@ -65,7 +65,7 @@ void TargetShift::cameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &msg)
     centerX_ = int(msg->width/2);
     centerY_ = int(msg->height/2);
     frameId_ = msg->header.frame_id;
-    FLAG_start_track = true;
+    //FLAG_start_track = true;
     ROS_INFO("[CameraInfo] Setting pixel_center_x: %d, pixel_center_y:%d", centerX_, centerY_);
   }
 }
@@ -90,78 +90,96 @@ void TargetShift::controlCallback(const robot_control_msgs::MissionConstPtr &msg
 
 void TargetShift::doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotResultConstPtr &result) {
   ROS_INFO("Finished in state [%s]", state.toString().c_str());
-  // 完成底盘对齐后
-  if (result->angle_result == "success") {
-    FLAG_base_focused = true;
-  }
+  FLAG_base_focused = true;
 }
 
 
 void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::BoundingBoxesConstPtr &msg) {
+  int targetIndex_ = 0;
+  for (int i = 0; i < msg->bounding_boxes.size(); i++) {
+    if (msg->bounding_boxes[i].Class == targetName_) {
+      // 如果检测到目标，记录目标的index，并将flag置为true
+      targetIndex_ = i;
+      FLAG_target_found = true;
+      FLAG_start_track = true;
+      dynamixelControl(pan_state->current_pos, 0.0);
+      break;
+    }
+  }
+  // 如果没有检测到目标
+  if (!FLAG_target_found) {
+    // 没有检测到目标时，转动头部搜索目标
+    if (fabs(pan_state->current_pos - pan_state->goal_pos) <= 0.1) {
+      std::cout << (pan_state->current_pos - pan_state->goal_pos) << std::endl;
+      ROS_INFO("[TargetTracker] Searching for target: %s ...", targetName_.c_str());
+      searchTargetCount_ += 1;
+      // 此时舵机并不在运动中
+      float pan_angle = pow((-1), searchTargetCount_)*(searchTargetCount_%3)*(2.610);
+      dynamixelControl(pan_angle, 0.0);
+    }
+  }
+
   if (FLAG_start_track) {
     std::cout << "======================= Enter Sync callback ===========================" << std::endl;
-    // receive motor state
-    currPanJointState_ = pan_state->current_pos;
-    currLiftJointState_ = lift_state->current_pos;
-    // searching for target object
-    for (int i = 0; i < msg->bounding_boxes.size(); i++) {
-      if (msg->bounding_boxes[i].Class == targetName_) {
-        // 保留上一帧中的识别框中心点
-        preCurrX_ = currX_;
-        preCurrY_ = currY_;
-        // 记录当前识别框的中心点
-        currX_ = int((msg->bounding_boxes[i].xmax + msg->bounding_boxes[i].xmin) / 2);
-        currY_ = int((msg->bounding_boxes[i].ymax + msg->bounding_boxes[i].ymin) / 2);
-        // 输出前一帧识别框和当前帧识别框
-        printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
-        // 计算两帧识别框中心间的距离
-        float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
-        // 如果两帧识别框中心间距离超过10像素，则认为这一帧间运动无法被忽略，控制头部相机跟随物体
-        if (frame2frameDistance > 10) {
-          // 如果帧间运动无法忽略，则将静止帧计数清零，并控制电机
-          staticFrameCount_ = 0;
-          dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
-        }
-        // 如果两帧识别框中心间距离不超过10像素
-        else if (staticFrameCount_ == 6){
-          // 如果累计静止帧等于6帧，则开始调整机器人底盘
-          // 同时将静止帧计数增加1，避免重复调用移动机器人的服务
-          staticFrameCount_ += 1;
-          // 调整FLAG，开始对准底盘
-          FLAG_turn_base = true;
-        } else {
-          // 如果累计静止帧不等于6帧，则将其+1
-          staticFrameCount_ += 1;
-        }
-        break;
-      }
-    }
-    // 在底盘对准物体后，等待相机平稳
-    if (staticFrameCount_ == 3 && FLAG_base_focused) {
-      std::cout << targetPointPublisher_.getTopic() << std::endl;
-      robot_vision_msgs::PixelPoint msg;
-      msg.header.stamp = ros::Time::now();
-      msg.image_header.frame_id = frameId_;
-      msg.pixel_x = currX_;
-      msg.pixel_y = currY_;
-      // 根据发布器是否订阅话题来判断是否需要发布目标位置
-      if (!targetPointPublisher_.getTopic().empty()) {
-        targetPointPublisher_.publish(msg);
-      }
-    }
-    std::cout << staticFrameCount_ << std::endl;
-    if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
-      if (fabs(turnedAngle_) > 0.1) {
-        ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
-        robot_navigation_msgs::MoveRobotGoal goal;
-        goal.angle = turnedAngle_;
-        actionClient_.sendGoal(goal, 
-                               boost::bind(&TargetShift::doneCallback, this, _1, _2));
-        FLAG_turn_base = false;
-      } else {
+    if (!msg->bounding_boxes.empty()) {
+      // receive motor state
+      currPanJointState_ = pan_state->current_pos;
+      currLiftJointState_ = lift_state->current_pos;
+      // searching for target object
+      // 保留上一帧中的识别框中心点
+      preCurrX_ = currX_;
+      preCurrY_ = currY_;
+      // 记录当前识别框的中心点
+      currX_ = int((msg->bounding_boxes[targetIndex_].xmax + msg->bounding_boxes[targetIndex_].xmin) / 2);
+      currY_ = int((msg->bounding_boxes[targetIndex_].ymax + msg->bounding_boxes[targetIndex_].ymin) / 2);
+      // 输出前一帧识别框和当前帧识别框
+      printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+      // 计算两帧识别框中心间的距离
+      float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
+      // 如果两帧识别框中心间距离超过10像素，则认为这一帧间运动无法被忽略，控制头部相机跟随物体
+      if (frame2frameDistance > 10) {
+        // 如果帧间运动无法忽略，则将静止帧计数清零，并控制电机
         staticFrameCount_ = 0;
-        FLAG_turn_base = false;
-        FLAG_base_focused = true;
+        dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+      }
+      // 如果两帧识别框中心间距离不超过10像素
+      else if (staticFrameCount_ == 6){
+        // 如果累计静止帧等于6帧，则开始调整机器人底盘
+        // 同时将静止帧计数增加1，避免重复调用移动机器人的服务
+        staticFrameCount_ += 1;
+        // 调整FLAG，开始对准底盘
+        FLAG_turn_base = true;
+      } else {
+        // 如果累计静止帧不等于6帧，则将其+1
+        staticFrameCount_ += 1;
+      }
+      // 在底盘对准物体后，等待相机平稳
+      if (staticFrameCount_ == 3 && FLAG_base_focused) {
+        std::cout << targetPointPublisher_.getTopic() << std::endl;
+        robot_vision_msgs::PixelPoint msg;
+        msg.header.stamp = ros::Time::now();
+        msg.image_header.frame_id = frameId_;
+        msg.pixel_x = currX_;
+        msg.pixel_y = currY_;
+        // 根据发布器是否订阅话题来判断是否需要发布目标位置
+        if (!targetPointPublisher_.getTopic().empty()) {
+          targetPointPublisher_.publish(msg);
+        }
+      }
+      std::cout << staticFrameCount_ << std::endl;
+      if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
+        if (fabs(turnedAngle_) > 0.1) {
+          ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
+          robot_navigation_msgs::MoveRobotGoal goal;
+          goal.angle = turnedAngle_;
+          actionClient_.sendGoal(goal, 
+                                boost::bind(&TargetShift::doneCallback, this, _1, _2));
+          FLAG_turn_base = false;
+        } else {
+          staticFrameCount_ = 0;
+          FLAG_turn_base = false;
+          FLAG_base_focused = true;
+        }
       }
     }
   }
@@ -273,56 +291,77 @@ void TargetShift::faceTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
 }
 
 void TargetShift::faceWithNameTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const opencv_apps::FaceArrayStampedConstPtr &msg) {
-  if (FLAG_start_track) {
-    std::cout << "======================= Enter Sync callback ===========================" << std::endl;
-    // receive motor state
-    currPanJointState_ = pan_state->current_pos;
-    currLiftJointState_ = lift_state->current_pos;
-    // 记录当前识别框的中心点
-    for (int i=0; i<msg->faces.size(); i++) {
-      if (msg->faces[i].label == std::string(targetName_)) {
-        preCurrX_ = currX_;
-        preCurrY_ = currY_;
-        currX_ = int(msg->faces[i].face.x);
-        currY_ = int(msg->faces[i].face.y);
-        printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
-        float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
-        if (frame2frameDistance > 10) {
-          staticFrameCount_ = 0;
-          dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
-        }
-        else if (staticFrameCount_ == 6){
-          staticFrameCount_ += 1;
-          FLAG_turn_base = true;
-        } else {
-          staticFrameCount_ += 1;
-        }
-        break;
-      }
+  int targetIndex_ = 0;
+  for (int i = 0; i < msg->faces.size(); i++) {
+    if (msg->faces[i].label == targetName_) {
+      // 如果检测到目标，记录目标的index，并将flag置为true
+      targetIndex_ = i;
+      FLAG_target_found = true;
+      FLAG_start_track = true;
+      dynamixelControl(pan_state->current_pos, 0.0);
+      break;
     }
-    if (staticFrameCount_ == 3 && FLAG_base_focused) {
-      robot_vision_msgs::PixelPoint msg;
-      msg.header.stamp = ros::Time::now();
-      msg.image_header.frame_id = frameId_;
-      msg.pixel_x = currX_;
-      msg.pixel_y = currY_;
-      if (!targetPointPublisher_.getTopic().empty()) {
-        targetPointPublisher_.publish(msg);
-      }
+  }
+  // 如果没有检测到目标
+  if (!FLAG_target_found) {
+    // 没有检测到目标时，转动头部搜索目标
+    if (fabs(pan_state->current_pos - pan_state->goal_pos) <= 0.1) {
+      std::cout << (pan_state->current_pos - pan_state->goal_pos) << std::endl;
+      ROS_INFO("[TargetTracker] Searching for target: %s ...", targetName_.c_str());
+      searchTargetCount_ += 1;
+      // 此时舵机并不在运动中
+      float pan_angle = pow((-1), searchTargetCount_)*(searchTargetCount_%3)*(2.610);
+      dynamixelControl(pan_angle, 0.0);
     }
+  }
 
-    if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
-      if (fabs(turnedAngle_) > 0.1) {
-        ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
-        robot_navigation_msgs::MoveRobotGoal goal;
-        goal.angle = turnedAngle_;
-        actionClient_.sendGoal(goal, 
-                               boost::bind(&TargetShift::doneCallback, this, _1, _2));
-        FLAG_turn_base = false;
-      } else {
+  if (FLAG_start_track) {
+    if (!msg->faces.empty()) {
+      std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+      // receive motor state
+      currPanJointState_ = pan_state->current_pos;
+      currLiftJointState_ = lift_state->current_pos;
+      // 记录当前识别框的中心点
+      preCurrX_ = currX_;
+      preCurrY_ = currY_;
+      currX_ = int(msg->faces[targetIndex_].face.x);
+      currY_ = int(msg->faces[targetIndex_].face.y);
+      printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+      float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
+      if (frame2frameDistance > 10) {
         staticFrameCount_ = 0;
-        FLAG_turn_base = false;
-        FLAG_base_focused = true;
+        dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+      }
+      else if (staticFrameCount_ == 6){
+        staticFrameCount_ += 1;
+        FLAG_turn_base = true;
+      } else {
+        staticFrameCount_ += 1;
+      }
+      if (staticFrameCount_ == 3 && FLAG_base_focused) {
+        robot_vision_msgs::PixelPoint msg;
+        msg.header.stamp = ros::Time::now();
+        msg.image_header.frame_id = frameId_;
+        msg.pixel_x = currX_;
+        msg.pixel_y = currY_;
+        if (!targetPointPublisher_.getTopic().empty()) {
+          targetPointPublisher_.publish(msg);
+        }
+      }
+
+      if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
+        if (fabs(turnedAngle_) > 0.1) {
+          ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
+          robot_navigation_msgs::MoveRobotGoal goal;
+          goal.angle = turnedAngle_;
+          actionClient_.sendGoal(goal, 
+                                boost::bind(&TargetShift::doneCallback, this, _1, _2));
+          FLAG_turn_base = false;
+        } else {
+          staticFrameCount_ = 0;
+          FLAG_turn_base = false;
+          FLAG_base_focused = true;
+        }
       }
     }
   }
@@ -330,58 +369,79 @@ void TargetShift::faceWithNameTrackCallback(const dynamixel_msgs::JointStateCons
 
 
 void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr &pan_state, const dynamixel_msgs::JointStateConstPtr &lift_state, const robot_vision_msgs::HumanPosesConstPtr &msg) {
+  int targetIndex_ = 0;
+  for (int i = 0; i < msg->poses.size(); i++) {
+    if (msg->poses[i].pose == targetName_) {
+      // 如果检测到目标，记录目标的index，并将flag置为true
+      targetIndex_ = i;
+      FLAG_target_found = true;
+      FLAG_start_track = true;
+      dynamixelControl(pan_state->current_pos, 0.0);
+      break;
+    }
+  }
+  // 如果没有检测到目标
+  if (!FLAG_target_found) {
+    // 没有检测到目标时，转动头部搜索目标
+    if (fabs(pan_state->current_pos - pan_state->goal_pos) <= 0.1) {
+      std::cout << (pan_state->current_pos - pan_state->goal_pos) << std::endl;
+      ROS_INFO("[TargetTracker] Searching for target: %s ...", targetName_.c_str());
+      searchTargetCount_ += 1;
+      // 此时舵机并不在运动中
+      float pan_angle = pow((-1), searchTargetCount_)*(searchTargetCount_%3)*(2.610);
+      dynamixelControl(pan_angle, 0.0);
+    }
+  }
   if (FLAG_start_track) {
-    std::cout << "======================= Enter Sync callback ===========================" << std::endl;
-    // receive motor state
-    currPanJointState_ = pan_state->current_pos;
-    currLiftJointState_ = lift_state->current_pos;
-    // searching for target object
-    for (int i = 0; i < msg->poses.size(); i++) {
-      if (std::string(msg->poses[i].pose) == targetName_) {
-        // 保留上一帧中的识别框中心点
-        preCurrX_ = currX_;
-        preCurrY_ = currY_;
-        // 记录当前识别框的中心点
-        currX_ = int(msg->poses[i].Chest.x);
-        currY_ = int(msg->poses[i].Chest.y);
-        printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
-        float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
-        if (frame2frameDistance > 10) {
-          staticFrameCount_ = 0;
-          dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
-        }
-        else if (staticFrameCount_ == 6){
-          staticFrameCount_ += 1;
-          FLAG_turn_base = true;
-        } else {
-          staticFrameCount_ += 1;
-        }
-        break;
-      }
-    }
-    if (staticFrameCount_ == 3 && FLAG_base_focused) {
-      robot_vision_msgs::PixelPoint msg;
-      msg.header.stamp = ros::Time::now();
-      msg.image_header.frame_id = frameId_;
-      msg.pixel_x = currX_;
-      msg.pixel_y = currY_;
-      if (!targetPointPublisher_.getTopic().empty()) {
-        targetPointPublisher_.publish(msg);
-      }
-    }
-
-    if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
-      if (fabs(turnedAngle_) > 0.1) {
-        ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
-        robot_navigation_msgs::MoveRobotGoal goal;
-        goal.angle = turnedAngle_;
-        actionClient_.sendGoal(goal, 
-                               boost::bind(&TargetShift::doneCallback, this, _1, _2));
-        FLAG_turn_base = false;
-      } else {
+    if (!msg->poses.empty()) {
+      std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+      // receive motor state
+      currPanJointState_ = pan_state->current_pos;
+      currLiftJointState_ = lift_state->current_pos;
+      // searching for target object
+      // 保留上一帧中的识别框中心点
+      preCurrX_ = currX_;
+      preCurrY_ = currY_;
+      // 记录当前识别框的中心点
+      currX_ = int(msg->poses[targetIndex_].Chest.x);
+      currY_ = int(msg->poses[targetIndex_].Chest.y);
+      printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
+      float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
+      if (frame2frameDistance > 10) {
         staticFrameCount_ = 0;
-        FLAG_turn_base = false;
-        FLAG_base_focused = true;
+        dynamixelControl(currX_, currY_, currPanJointState_, currLiftJointState_, 0.001);
+      }
+      else if (staticFrameCount_ == 6){
+        staticFrameCount_ += 1;
+        FLAG_turn_base = true;
+      } else {
+        staticFrameCount_ += 1;
+      }
+
+      if (staticFrameCount_ == 3 && FLAG_base_focused) {
+        robot_vision_msgs::PixelPoint msg;
+        msg.header.stamp = ros::Time::now();
+        msg.image_header.frame_id = frameId_;
+        msg.pixel_x = currX_;
+        msg.pixel_y = currY_;
+        if (!targetPointPublisher_.getTopic().empty()) {
+          targetPointPublisher_.publish(msg);
+        }
+      }
+
+      if (staticFrameCount_ == 7 && FLAG_turn_base && !FLAG_base_focused) {
+        if (fabs(turnedAngle_) > 0.1) {
+          ROS_INFO("[TargetTrack] Start focusing move base for %f radius...", turnedAngle_);
+          robot_navigation_msgs::MoveRobotGoal goal;
+          goal.angle = turnedAngle_;
+          actionClient_.sendGoal(goal, 
+                                boost::bind(&TargetShift::doneCallback, this, _1, _2));
+          FLAG_turn_base = false;
+        } else {
+          staticFrameCount_ = 0;
+          FLAG_turn_base = false;
+          FLAG_base_focused = true;
+        }
       }
     }
   }
@@ -404,6 +464,17 @@ void TargetShift::dynamixelControl(int curr_x, int curr_y, float pan_state, floa
   msg_pan.data = next_state_pan;
   msg_lift.data = next_state_lift;
 
+  headPanJointPublisher_.publish(msg_pan);
+  headLiftJointPublisher_.publish(msg_lift);
+}
+
+void TargetShift::dynamixelControl(float pan_angle, float lift_angle) {
+  std_msgs::Float64 msg_pan;
+  std_msgs::Float64 msg_lift;
+
+  msg_pan.data = pan_angle;
+  msg_lift.data = lift_angle;
+  
   headPanJointPublisher_.publish(msg_pan);
   headLiftJointPublisher_.publish(msg_lift);
 }
