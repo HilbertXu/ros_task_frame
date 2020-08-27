@@ -148,13 +148,15 @@ namespace target_tracker {
     std::string targetName_;
     std::string frameId_;
     float turnedAngle_ = 0;
-    int staticFrameCount_ = 0;
+    int staticFrameCount_  = 0;
+    int searchTargetCount_ = 0;
 
     // FLAG
     bool FLAG_under_control = false;
-    bool FLAG_start_track = false;
-    bool FLAG_turn_base = false;
-    bool FLAG_base_focused = false;
+    bool FLAG_target_found  = false;
+    bool FLAG_start_track   = false;
+    bool FLAG_turn_base     = false;
+    bool FLAG_base_focused  = false;
 
     // ROS NodeHandle
     ros::NodeHandle nodeHandle_;
@@ -194,6 +196,9 @@ namespace target_tracker {
     
     // Control dynamixel motors according to current (x,y) and current motors state
     void dynamixelControl(int curr_x, int curr_y, float pan_state, float lift_state, float scale);
+
+    // Overload of dynamixelControl
+    void dynamixelControl(float pan_angle, float lift_angle);
 
     // Control callback function
     void controlCallback(const robot_control_msgs::MissionConstPtr &msg);

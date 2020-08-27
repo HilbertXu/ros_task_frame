@@ -35,6 +35,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include <std_msgs/String.h>
 #include <std_msgs/Float32.h>
+#include <geometry_msgs/Pose.h>
 #include <geometry_msgs/PointStamped.h>
 
 // Robot control message type
@@ -42,6 +43,13 @@
 #include <robot_vision_msgs/SpacePoint.h>
 #include <robot_control_msgs/Mission.h>
 #include <robot_control_msgs/Feedback.h>
+
+// Move robot action server
+#include <actionlib/client/simple_action_client.h>
+#include <actionlib/client/terminal_state.h>
+#include <robot_navigation_msgs/MoveRobotAction.h>
+
+typedef actionlib::SimpleActionClient<robot_navigation_msgs::MoveRobotAction> MoveRobotActionClient;
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloudAstra (new pcl::PointCloud<pcl::PointXYZ>);
 pcl::PointCloud<pcl::PointXYZ>::Ptr cloudBase (new pcl::PointCloud<pcl::PointXYZ>);
@@ -76,6 +84,9 @@ namespace target_localization {
     std::string sourceFrame_;
     std::string targetFrame_;
 
+    // Robot pose
+    geometry_msgs::Quaternion rotation;
+
     // ROS NodeHandle
     ros::NodeHandle nodeHandle_;
 
@@ -88,9 +99,16 @@ namespace target_localization {
 
     ros::Publisher controlPublisher_;
     ros::Publisher spacePointPublisher_;
+    ros::Publisher naviPointPublisher_;
+
+    // Move robot actionlib
+    actionlib::SimpleActionClient<robot_navigation_msgs::MoveRobotAction> actionClient_;
 
     // Initial function
     void init();
+
+    // actionlib done callback for getting robot pose
+    void doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotResultConstPtr &result);
 
     // Find the nearest valid point if needed
     int findNearValid (int idx);
@@ -109,7 +127,5 @@ namespace target_localization {
 
     // Point cloud callback
     void pclCallback (sensor_msgs::PointCloud2 msg);
-
-    
   };
 }
