@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<launch>
+  <!-- Console launch prefix -->
+  <arg name="launch_prefix" default="xterm -e"/>
+  <arg name="target_tracker/track"             default="yolo" />
+  <arg name="target_tracker/target"            default="bottle" />
+  <arg name="target_localization/source_frame" default="/camera_top_depth_optical_frame" />
+  <arg name="target_localization/target_frame" default="/base_link" />
+  <arg name="under_control"                    default="false" />
+  
+  <!-- Bringup astra camera -->
+  <include file="$(find rchomeedu_vision)/launch/multi_astra.launch" />
+
+  <!-- Bringup dynamixel motors -->
+  <include file="$(find mustar_arm_bringup)/launch/mustar_arm_4_1_head_bringup.launch"/>
+
+  <!-- Bringup moveit-->
+  <include file="$(find mustar_arm_bringup)/launch/mustar_arm_4_1_head_moveit_bringup.launch"/>
+
+  <!-- Start move robot action server -->
+  <node pkg="robot_navigation_core" type="move_robot_server" name="move_robot_server" output="screen" launch-prefix="xterm -e"/>
+
+  <!-- Target Localization -->
+  <node pkg="robot_vision_core" type="target_localization" name="target_localization" output="screen" launch-prefix="xterm -e">
+    <param name="/source_frame"          value="$(arg target_localization/source_frame)" />
+    <param name="/target_frame"          value="$(arg target_localization/target_frame)"/>
+    <param name="/under_control"         value="$(arg under_control)"/>
+  </node>
+
+  <!-- Start target tracker -->
+  <node pkg="robot_vision_core" type="target_tracker" name="target_tracker" output="screen" launch-prefix="$(arg launch_prefix)">
+    <param name="/track"          value="$(arg target_tracker/track)" />
+    <param name="/target"         value="$(arg target_tracker/target)"/>
+    <param name="under_control"   value="$(arg under_control)"/>
+  </node>
+
+  <node pkg="mustar_arm_moveit_demos" type="grasp_target_object.py" name="grasp_target_object" output="screen" launch-prefix="$(arg launch_prefix)"/>
+
+</launch>
