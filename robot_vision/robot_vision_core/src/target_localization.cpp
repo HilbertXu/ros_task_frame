@@ -114,7 +114,7 @@ void TargetLocate::init () {
     nodeHandle_.param("publishers/space_point/topic", spacePointTopicName_, std::string("/robot_vision/space_point"));
     nodeHandle_.param("publishers/space_point/queue_size", spacePointQueueSize_, 1);
     nodeHandle_.param("publishers/space_point/latch", spacePointLatch_, false);
-    nodeHandle_.param("publishers/navi_point/topic", naviPointTopic_, std::string("/robot_vision/navi_point"));
+    nodeHandle_.param("publishers/navi_point/topic", naviPointTopic_, std::string("/robot_navigation/navi_pose"));
     nodeHandle_.param("publishers/navi_point/queue_size", naviPointQueueSize_, 1);
     nodeHandle_.param("publishers/navi_point/latch", naviPointLatch_, false);
 
@@ -190,6 +190,7 @@ void TargetLocate::controlCallback (const robot_control_msgs::MissionConstPtr &m
     FLAG_sub_pcl_data = true;
   }
 }
+
 
 void TargetLocate::imageCallback (const sensor_msgs::ImageConstPtr &msg) {
   if (!cloudAstra->empty()) {
