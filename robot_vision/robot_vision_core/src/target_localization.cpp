@@ -285,33 +285,35 @@ void TargetLocate::transformTarget() {
       controlPublisher_.publish(msg);
       FLAG_pub_obj_pos = true;
     } else if (FLAG_pub_obj_pos && !FLAG_under_control) {
+
       robot_vision_msgs::SpacePoint msg;
       msg.header.stamp = ros::Time::now();
       msg.image_header.frame_id = targetFrame_;
-      msg.space_x = base_point.point.x;
+      msg.space_x = 0.31;
       msg.space_y = base_point.point.y;
       msg.space_z = base_point.point.z;
       spacePointPublisher_.publish(msg);
-
       robot_navigation_msgs::MoveRobotGoal goal;
-      goal.distance = base_point.point.x - 0.5;
+      goal.distance = base_point.point.x - 0.31;
       actionClient_.sendGoal(goal, 
                             boost::bind(&TargetLocate::doneCallback, this, _1, _2));
-
-      geometry_msgs::Pose navi;
-      navi.position.x = base_point.point.x;
-      navi.position.y = base_point.point.y;
-      navi.position.z = 0.0;
-      navi.orientation.w = rotation.w;
-      navi.orientation.x = rotation.x;
-      navi.orientation.y = rotation.y;
-      navi.orientation.z = rotation.z;
-      naviPointPublisher_.publish(navi);
-      FLAG_pub_obj_pos = false;
+      
+      if (targetFrame_ == "/map") {
+        geometry_msgs::Pose navi;
+        navi.position.x = base_point.point.x;
+        navi.position.y = base_point.point.y;
+        navi.position.z = 0.0;
+        navi.orientation.w = rotation.w;
+        navi.orientation.x = rotation.x;
+        navi.orientation.y = rotation.y;
+        navi.orientation.z = rotation.z;
+        naviPointPublisher_.publish(navi);
+        FLAG_pub_obj_pos = false;
+      }
+      
     }
   }
 }
-
 
 
 int main (int argc, char** argv) {

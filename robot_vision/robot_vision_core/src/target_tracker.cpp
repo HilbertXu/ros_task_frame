@@ -16,6 +16,10 @@ TargetShift::TargetShift(ros::NodeHandle nh, int argc, char** argv): nodeHandle_
   ROS_INFO("[TargetTracker] Waiting for MoveRobotServer...");
   actionClient_.waitForServer();
 
+  robot_navigation_msgs::MoveRobotGoal goal;
+  goal.angle = 0.2;
+  actionClient_.sendGoal(goal);
+
   //设定节点状态参数FLAG_under_control
   if (nodeHandle_.hasParam("/under_control")) {
     // 如果rosparam服务器中存在/under_control参数
@@ -102,20 +106,33 @@ void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
       targetIndex_ = i;
       FLAG_target_found = true;
       FLAG_start_track = true;
-      dynamixelControl(pan_state->current_pos, 0.0);
+      dynamixelControl(pan_state->current_pos, lift_state->current_pos);
       break;
     }
   }
   // 如果没有检测到目标
   if (!FLAG_target_found) {
+    if (searchTargetCount_ == 3) {
+      // 在平视状态下头部已经转过一周，设置头部向下观察
+      if (fabs(lift_state->goal_pos - 0.43) > 0.1) {
+        // 只发布一次lift关节控制指令
+        dynamixelControl(0.0, 0.43);
+      }
+      // 等待lift关节完成移动，然后将搜索次数置0
+      if (fabs(lift_state->current_pos - lift_state->goal_pos) <= 0.1) {
+        searchTargetCount_ = 0;
+      }
+    }
     // 没有检测到目标时，转动头部搜索目标
-    if (fabs(pan_state->current_pos - pan_state->goal_pos) <= 0.1) {
-      std::cout << (pan_state->current_pos - pan_state->goal_pos) << std::endl;
+    if ((fabs(pan_state->current_pos - pan_state->goal_pos) <= 0.1) && (searchTargetCount_ < 3)) {
       ROS_INFO("[TargetTracker] Searching for target: %s ...", targetName_.c_str());
       searchTargetCount_ += 1;
       // 此时舵机并不在运动中
+      /* searchFrameCount： 1 -> pan_angle: -2.610
+       * searchFrameCount: 2 -> pan_angle: 2.610
+       */
       float pan_angle = pow((-1), searchTargetCount_)*(searchTargetCount_%3)*(2.610);
-      dynamixelControl(pan_angle, 0.0);
+      dynamixelControl(pan_angle, lift_state->current_pos);
     }
   }
 
