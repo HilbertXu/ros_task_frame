@@ -52,10 +52,10 @@ float MoveRobotServer::quatToAngle(tf::Quaternion quat) {
 
 float MoveRobotServer::normalizeAngle(float angle) {
   float res = angle;
-  if (angle > PI) {
-    res -= 2.0 * PI;
-  } else if (angle < -PI) {
-    res += 2.0 * PI;
+  if (angle > 3) {
+    res = -0.002;
+  } else if (angle < -3) {
+    res = 0.002;
   }
   return res;
 }
@@ -162,6 +162,9 @@ void MoveRobotServer::executeCallback(const robot_navigation_msgs::MoveRobotGoal
 
   // Get current transform from /odom to /base_footprint
   tf::StampedTransform transform = getOdomTransform();
+
+  ROS_INFO("Current Robot position: (x, y, z) = (%f, %f, %f)", transform.getOrigin().x(), transform.getOrigin().y(), transform.getOrigin().z());
+  ROS_INFO("Current Robot angle: %f", quatToAngle(transform.getRotation()));
 
   // Turn robot
   turnRobot(loop_rate, goal->angle, transform.getRotation());

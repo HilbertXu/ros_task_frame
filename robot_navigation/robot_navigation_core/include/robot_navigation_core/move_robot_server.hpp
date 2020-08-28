@@ -91,7 +91,6 @@ namespace move_robot_server {
     // FLAG
     bool FLAG_success = false;
     
-    
     ros::Publisher cmdVelPublisher_;
 
     // Get transform from odom frame to base link frame
