@@ -62,19 +62,19 @@ namespace navigate_to_target {
     // Check if current target is valid
     void checkValid(geometry_msgs::Pose worldPose);
 
+    // Find nearest valid point in map if needed
+    int findNearestValid(int index);
+
     // Pixel coordinates to world coordiantes
-    std::vector<int> mapToWorld(int map_x, int map_y);
+    std::vector<float> mapToWorld(int map_x, int map_y);
 
     // World coordinates to pixel coordinates
     std::vector<int> worldToMap(float world_x, float world_y);
-
-    // Find nearest valid point in map if needed
-    int findNearestValid(int index);
 
     // Subscribe map
     void mapCallback(const nav_msgs::OccupancyGridConstPtr &msg);
 
     // callback of target pose
     void targetPoseCallback(const geometry_msgs::PoseConstPtr &msg);
-  }
+  };
 }
