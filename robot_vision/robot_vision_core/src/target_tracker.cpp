@@ -69,7 +69,6 @@ void TargetShift::cameraInfoCallback(const sensor_msgs::CameraInfoConstPtr &msg)
     centerX_ = int(msg->width/2);
     centerY_ = int(msg->height/2);
     frameId_ = msg->header.frame_id;
-    //FLAG_start_track = true;
     ROS_INFO("[CameraInfo] Setting pixel_center_x: %d, pixel_center_y:%d", centerX_, centerY_);
   }
 }
@@ -139,16 +138,24 @@ void TargetShift::yoloTrackCallback(const dynamixel_msgs::JointStateConstPtr &pa
   if (FLAG_start_track) {
     std::cout << "======================= Enter Sync callback ===========================" << std::endl;
     if (!msg->bounding_boxes.empty()) {
+      if (buffer.empty()) {
+        buffer.push_back(int((msg->bounding_boxes[targetIndex_].ymax + msg->bounding_boxes[targetIndex_].ymin) / 2));
+        buffer.push_back(int((msg->bounding_boxes[targetIndex_].ymax + msg->bounding_boxes[targetIndex_].ymin) / 2));
+        buffer.push_back(int((msg->bounding_boxes[targetIndex_].ymax + msg->bounding_boxes[targetIndex_].ymin) / 2));
+      }
+      // 让index在0-3间循环
+      filterIndex_ = (filterIndex_ + 1) % 3;
       // receive motor state
       currPanJointState_ = pan_state->current_pos;
       currLiftJointState_ = lift_state->current_pos;
       // searching for target object
       // 保留上一帧中的识别框中心点
       preCurrX_ = currX_;
-      preCurrY_ = currY_;
+      preCurrY_ = int((buffer[0] + buffer[1] + buffer[2])/3); // 对识别中心的Y方向坐标进行滤波，减少抖动带来的影响
       // 记录当前识别框的中心点
       currX_ = int((msg->bounding_boxes[targetIndex_].xmax + msg->bounding_boxes[targetIndex_].xmin) / 2);
       currY_ = int((msg->bounding_boxes[targetIndex_].ymax + msg->bounding_boxes[targetIndex_].ymin) / 2);
+      buffer[filterIndex_] = currY_;
       // 输出前一帧识别框和当前帧识别框
       printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
       // 计算两帧识别框中心间的距离
@@ -335,14 +342,21 @@ void TargetShift::faceWithNameTrackCallback(const dynamixel_msgs::JointStateCons
   if (FLAG_start_track) {
     if (!msg->faces.empty()) {
       std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+      if (buffer.empty()) {
+        buffer.push_back(int(msg->faces[targetIndex_].face.y));
+        buffer.push_back(int(msg->faces[targetIndex_].face.y));
+        buffer.push_back(int(msg->faces[targetIndex_].face.y));
+      }
+      filterIndex_ = (filterIndex_+1)%3;
       // receive motor state
       currPanJointState_ = pan_state->current_pos;
       currLiftJointState_ = lift_state->current_pos;
       // 记录当前识别框的中心点
       preCurrX_ = currX_;
-      preCurrY_ = currY_;
+      preCurrY_ = int((buffer[0] + buffer[1] + buffer[2])/3);
       currX_ = int(msg->faces[targetIndex_].face.x);
       currY_ = int(msg->faces[targetIndex_].face.y);
+      buffer[filterIndex_] = currY_;
       printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
       float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
       if (frame2frameDistance > 10) {
@@ -412,16 +426,23 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
   if (FLAG_start_track) {
     if (!msg->poses.empty()) {
       std::cout << "======================= Enter Sync callback ===========================" << std::endl;
+      if (buffer.empty()) {
+        buffer.push_back(int(msg->poses[targetIndex_].Chest.y));
+        buffer.push_back(int(msg->poses[targetIndex_].Chest.y));
+        buffer.push_back(int(msg->poses[targetIndex_].Chest.y));
+      }
+      filterIndex_ = (filterIndex_ + 1)%3;
       // receive motor state
       currPanJointState_ = pan_state->current_pos;
       currLiftJointState_ = lift_state->current_pos;
       // searching for target object
       // 保留上一帧中的识别框中心点
       preCurrX_ = currX_;
-      preCurrY_ = currY_;
+      preCurrY_ = (buffer[0] + buffer[1] + buffer[2])/3;
       // 记录当前识别框的中心点
       currX_ = int(msg->poses[targetIndex_].Chest.x);
       currY_ = int(msg->poses[targetIndex_].Chest.y);
+      buffer[filterIndex_] = currY_;
       printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
       float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);
       if (frame2frameDistance > 10) {

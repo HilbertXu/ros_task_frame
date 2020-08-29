@@ -126,6 +126,7 @@ void TargetLocate::init () {
 }
 
 void TargetLocate::doneCallback(const actionlib::SimpleClientGoalState &state, const robot_navigation_msgs::MoveRobotResultConstPtr &result) {
+  // 获取机器人完成转动后的姿态，现已废弃，因为机器人在odom坐标系下的姿态与在/map坐标系下的姿态并不相同
   ROS_INFO("Finished in state [%s]", state.toString().c_str());
   rotation = result->rotation;
 }
@@ -286,28 +287,41 @@ void TargetLocate::transformTarget() {
       controlPublisher_.publish(msg);
       FLAG_pub_obj_pos = true;
     } else if (FLAG_pub_obj_pos && !FLAG_under_control) {
+      if (targetFrame_ == "/base_link") {
+        robot_vision_msgs::SpacePoint msg;
+        msg.header.stamp = ros::Time::now();
+        msg.image_header.frame_id = targetFrame_;
+        msg.space_x = 0.31;
+        msg.space_y = base_point.point.y;
+        msg.space_z = base_point.point.z;
+        spacePointPublisher_.publish(msg);
+        robot_navigation_msgs::MoveRobotGoal goal;
+        goal.distance = base_point.point.x - 0.31;
+        actionClient_.sendGoal(goal, 
+                              boost::bind(&TargetLocate::doneCallback, this, _1, _2));
+      }
 
-      robot_vision_msgs::SpacePoint msg;
-      msg.header.stamp = ros::Time::now();
-      msg.image_header.frame_id = targetFrame_;
-      msg.space_x = 0.31;
-      msg.space_y = base_point.point.y;
-      msg.space_z = base_point.point.z;
-      spacePointPublisher_.publish(msg);
-      robot_navigation_msgs::MoveRobotGoal goal;
-      goal.distance = base_point.point.x - 0.31;
-      actionClient_.sendGoal(goal, 
-                            boost::bind(&TargetLocate::doneCallback, this, _1, _2));
-      
       if (targetFrame_ == "/map") {
+        // 获取当期机器人在/map坐标系下的朝向姿态
+        tf::TransformListener mapListener;
+        tf::StampedTransform transform;
+        try {
+          ROS_INFO("Listening for the tf transform from /base_link to /map");
+          mapListener.waitForTransform("/base_footprint", "/map", ros::Time(0), ros::Duration(3.0));
+          mapListener.lookupTransform("/base_footprint", "/map", ros::Time(), transform);
+        }
+        catch(tf::TransformException& ex) {
+          ROS_ERROR("Received an exception trying to transform a point from \"%s\" to \"%s\": %s","/base_footprint", "/map", ex.what());
+        }
+
         geometry_msgs::Pose navi;
         navi.position.x = base_point.point.x;
         navi.position.y = base_point.point.y;
         navi.position.z = 0.0;
-        navi.orientation.w = rotation.w;
-        navi.orientation.x = rotation.x;
-        navi.orientation.y = rotation.y;
-        navi.orientation.z = rotation.z;
+        navi.orientation.w = transform.getRotation().w();
+        navi.orientation.x = transform.getRotation().x();
+        navi.orientation.y = transform.getRotation().y();
+        navi.orientation.z = transform.getRotation().z();
         naviPointPublisher_.publish(navi);
         FLAG_pub_obj_pos = false;
       }

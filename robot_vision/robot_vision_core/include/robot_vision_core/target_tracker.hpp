@@ -151,6 +151,10 @@ namespace target_tracker {
     int staticFrameCount_  = 0;
     int searchTargetCount_ = 0;
 
+    // Target point vector for filtering
+    int filterIndex_ = 0;
+    std::vector<int> buffer; // 由于在识别过程中发现，X方向上(横向)识别点跳动不大，Y方向上(纵向)跳动幅度较大，因此仅对Y方向上进行滤波处理
+
     // FLAG
     bool FLAG_under_control = false;
     bool FLAG_target_found  = false;

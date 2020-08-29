@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<launch>
+  <!-- Console launch prefix -->
+  <arg name="launch_prefix" default="xterm -e"/>
+  <arg name="target_tracker/track"             default="openpose" />
+  <arg name="target_tracker/target"            default="waving_left" />
+  <arg name="target_localization/source_frame" default="/camera_top_depth_optical_frame" />
+  <arg name="target_localization/target_frame" default="/map" />
+  <arg name="under_control"                    default="false" />
+
+  <!-- Bringup dynamixel motors -->
+  <include file="$(find mustar_arm_bringup)/launch/mustar_arm_4_1_head_bringup.launch"/>
+  <!-- Start move robot action server -->
+  <node pkg="robot_navigation_core" type="move_robot_server" name="move_robot_server" output="screen" launch-prefix="$(arg launch_prefix)"/>
+
+  <!-- Target Localization -->
+  <node pkg="robot_vision_core" type="target_localization" name="target_localization" output="screen" launch-prefix="$(arg launch_prefix)">
+    <param name="/source_frame"          value="$(arg target_localization/source_frame)" />
+    <param name="/target_frame"          value="$(arg target_localization/target_frame)"/>
+    <param name="/under_control"         value="$(arg under_control)"/>
+  </node>
+
+  <!-- Start target tracker -->
+  <node pkg="robot_vision_core" type="target_tracker" name="target_tracker" output="screen" launch-prefix="$(arg launch_prefix)">
+    <param name="/track"          value="$(arg target_tracker/track)" />
+    <param name="/target"         value="$(arg target_tracker/target)"/>
+    <param name="under_control"   value="$(arg under_control)"/>
+  </node>
+
+  <!-- Start Navigation node -->
+  <<node pkg="robot_navigation_core" type="navigate_to_target" name="navigate_to_target" output="screen" launch-prefix="$(arg launch_prefix)">
+    
+  </node>
+
+
+</launch>
