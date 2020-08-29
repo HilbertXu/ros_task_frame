@@ -172,6 +172,9 @@ target_link_libraries(get_pose ${catkin_LIBRARIES})
 add_executable(move_robot_server src/move_robot_server.cpp)
 target_link_libraries(move_robot_server ${catkin_LIBRARIES})
 
+add_executable(navigate_to_target src/navigate_to_target.cpp)
+target_link_libraries(navigate_to_target ${catkin_LIBRARIES})
+
 
 
 #############
