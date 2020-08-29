@@ -94,10 +94,7 @@ namespace move_robot_server {
     ros::Publisher cmdVelPublisher_;
 
     // Get transform from odom frame to base link frame
-    tf::StampedTransform getOdomTransform() {
-      pListener.lookupTransform(odomFrame_, baseFrame_, ros::Time(), transform);
-      return transform;
-    }
+    tf::StampedTransform getOdomTransform();
 
     // utilities function
     float quatToAngle(tf::Quaternion quat);

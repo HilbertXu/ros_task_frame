@@ -60,6 +60,11 @@ float MoveRobotServer::normalizeAngle(float angle) {
   return res;
 }
 
+tf::StampedTransform MoveRobotServer::getOdomTransform() {
+  pListener.lookupTransform(odomFrame_, baseFrame_, ros::Time(), transform);
+  return transform;
+}
+
 void MoveRobotServer::turnRobot(ros::Rate loop_rate, float goalRadius, tf::Quaternion rot) {
   ROS_INFO("[MoveRobotServer] Turning robot for %f radius", goalRadius);
   
