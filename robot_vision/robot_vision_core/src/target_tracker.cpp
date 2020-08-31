@@ -16,10 +16,6 @@ TargetShift::TargetShift(ros::NodeHandle nh, int argc, char** argv): nodeHandle_
   ROS_INFO("[TargetTracker] Waiting for MoveRobotServer...");
   actionClient_.waitForServer();
 
-  robot_navigation_msgs::MoveRobotGoal goal;
-  goal.angle = 0.2;
-  actionClient_.sendGoal(goal);
-
   //设定节点状态参数FLAG_under_control
   if (nodeHandle_.hasParam("/under_control")) {
     // 如果rosparam服务器中存在/under_control参数
@@ -440,8 +436,16 @@ void TargetShift::openposeTrackCallback(const dynamixel_msgs::JointStateConstPtr
       preCurrX_ = currX_;
       preCurrY_ = (buffer[0] + buffer[1] + buffer[2])/3;
       // 记录当前识别框的中心点
-      currX_ = int(msg->poses[targetIndex_].Chest.x);
-      currY_ = int(msg->poses[targetIndex_].Chest.y);
+      if (msg->poses[targetIndex_].Chest.x != -1 && msg->poses[targetIndex_].Chest.y != -1) {
+        // 如果识别到了胸部的关节点，则更新当前中心点x,y坐标
+        currX_ = int(msg->poses[targetIndex_].Chest.x);
+        currY_ = int(msg->poses[targetIndex_].Chest.y);
+      } else {
+        // 如果没有识别到，则保持上一次识别结果不变，防止摄像头跳动
+        currX_ = preCurrX_;
+        currY_ = preCurrY_;
+      }
+      
       buffer[filterIndex_] = currY_;
       printf("Pre frame: (%d, %d), current frame: (%d, %d)\n", preCurrX_, preCurrY_, currX_, currY_);
       float frame2frameDistance = calcPixelDistance(preCurrX_, preCurrY_, currX_, currY_);

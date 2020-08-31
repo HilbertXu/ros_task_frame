@@ -10,7 +10,7 @@ int main(int argc, char** argv)
   ros::init(argc, argv, "image_publisher");
   ros::NodeHandle nh;
   image_transport::ImageTransport it(nh);
-  image_transport::Publisher pub = it.advertise("/astra/rgb/image_raw", 1);
+  image_transport::Publisher pub = it.advertise("/camera_top/rgb/image_raw", 1);
 
   cv::Mat image = cv::imread("/home/kamerider/Pictures/sb.jpg", CV_LOAD_IMAGE_COLOR);
   cv::Mat dst;
