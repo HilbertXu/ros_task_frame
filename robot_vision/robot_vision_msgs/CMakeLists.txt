@@ -25,6 +25,8 @@ add_message_files(
     ObjectCount.msg
     PixelPoint.msg
     SpacePoint.msg
+    FaceResult.msg
+    FaceResults.msg
 )
 
 add_action_files(
