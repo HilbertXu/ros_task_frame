@@ -6,6 +6,12 @@
   <arg name="target_tracker/track"  default="yolo" />
   <arg name="target_tracker/target" default="bottle" />
   <arg name="under_control"         default="false" />
+  
+  <!-- Bringup astra camera -->
+  <include file="$(find rchomeedu_vision)/launch/multi_astra.launch" />
+
+  <!-- Bringup dynamixel motors -->
+  <include file="$(find mustar_arm_bringup)/launch/mustar_arm_4_1_head_bringup.launch"/>
 
   <!-- Config and weights folder. -->
   <node pkg="robot_navigation_core" type="move_robot_server" name="move_robot_server" output="screen" launch-prefix="xetrm-e"/>

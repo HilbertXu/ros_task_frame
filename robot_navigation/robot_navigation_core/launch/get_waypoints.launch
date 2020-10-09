@@ -1,10 +1,10 @@
 <!--这是获取位置的launch文件-->
 <launch>
   <!-- 唤醒turtlebot -->
-  <include file="$(find turtlebot_bringup)launch/minimal.launch" />
+  <include file="$(find turtlebot_bringup)/launch/minimal.launch" />
 
   <!-- 设置摄像头参数 -->
-  <include file="$(find turtlebot_bringup)launch/3dsensor.launch">
+  <include file="$(find turtlebot_bringup)/launch/3dsensor.launch">
     <arg name="rgb_processing" value="false" />
     <arg name="depth_registration" value="false" />
     <arg name="depth_processing" value="false" />
@@ -37,10 +37,7 @@
   -->
       <!-- 速度平滑 -->
     <include file="$(find turtlebot_teleop)/launch/keyboard_teleop.launch" />   
-
     
-
-
   <!-- 加载C++节点 -->
   <node pkg="kamerider_navigation_core" type="get_pose" name="get_pose" launch-prefix="xterm -e"/> <!-- -->
 

@@ -522,6 +522,7 @@ void TargetShift::dynamixelControl(float pan_angle, float lift_angle) {
 }
 
 void TargetShift::init() {
+  
   std::string cameraInfoTopicName_;
   int cameraInfoQueueSize_;
 

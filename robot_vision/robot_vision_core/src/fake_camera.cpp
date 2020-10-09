@@ -14,6 +14,7 @@ int main(int argc, char** argv)
 
   cv::Mat image = cv::imread("/home/kamerider/Pictures/sb.jpg", CV_LOAD_IMAGE_COLOR);
   cv::Mat dst;
+  
   cv::resize(image, dst, cv::Size(480, 640));
   if(image.empty()){
    printf("open error\n");
